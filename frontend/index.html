@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Breakthru.ai VMS</title>
+</head>
+<body>
+  <!--
+    This file intentionally acts as a bridge to your existing UI.
+    Your real UI is located at: frontend/vms_fixed.html
+  -->
+  <iframe
+    src="./vms_fixed.html"
+    title="Breakthru.ai VMS"
+    style="width:100%;height:100vh;border:0;"
+  ></iframe>
+
+  <script>
+    // Inject api-bridge.js into the iframe's window so window.apiCreateVisit is available there
+    var frame = document.querySelector('iframe');
+    frame.addEventListener('load', function () {
+      var s = frame.contentDocument.createElement('script');
+      s.src = '/api-bridge.js';
+      frame.contentDocument.head.appendChild(s);
+    });
+  </script>
+</body>
+</html>
+
