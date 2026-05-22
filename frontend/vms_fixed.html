@@ -2618,14 +2618,14 @@
         h += `<div class="empty-note">📭 No active visitors right now</div>`;
       } else {
         active.forEach(s => {
-          h += `<div class="sess-card">
+          h += `<div class="sess-card" onclick="showHamVisitorDetail('${s.id}')" style="cursor:pointer">
         <div class="sess-card-name">${s.name}</div>
         <div class="sess-card-meta">🏢 ${s.company || '—'} · 👤 ${s.host || '—'}</div>
         <div class="sess-card-meta">🏷 ${s.rfid} · 🕒 In: ${fmtT(s.inTime)}</div>
         <div style="margin-top:5px"><span class="badge badge-green">${ic(I.check, 9, 2.5)} Active</span></div>
         <div class="sess-card-actions">
-          <button class="btn btn-s" onclick="viewReport('${s.id}')">Report</button>
-          <button class="btn btn-d" onclick="initiateHamCheckout('${s.id}')">Checkout</button>
+          <button class="btn btn-s" onclick="event.stopPropagation();viewReport('${s.id}')">Report</button>
+          <button class="btn btn-d" onclick="event.stopPropagation();initiateHamCheckout('${s.id}')">Checkout</button>
         </div>
       </div>`;
         });
@@ -2638,13 +2638,13 @@
         h += `<div class="empty-note">✅ No completed visits yet</div>`;
       } else {
         done.forEach(s => {
-          h += `<div class="sess-card" style="opacity:.65">
+          h += `<div class="sess-card" style="opacity:.65" onclick="showHamVisitorDetail('${s.id}')" style="cursor:pointer">
         <div class="sess-card-name">${s.name}</div>
         <div class="sess-card-meta">Out: ${fmtT(s.outTime)} · ${s.duration} min · ${s.rfid}</div>
         <div style="margin-top:4px"><span class="badge badge-amber">Completed</span></div>
         <div class="sess-card-actions">
-          <button class="btn btn-s" onclick="viewReport('${s.id}')">Report</button>
-          <button class="btn btn-p" onclick="downloadReport('${s.id}')">${ic(I.dl, 11)} Download</button>
+          <button class="btn btn-s" onclick="event.stopPropagation();viewReport('${s.id}')">Report</button>
+          <button class="btn btn-p" onclick="event.stopPropagation();downloadReport('${s.id}')">${ic(I.dl, 11)} Download</button>
         </div>
       </div>`;
         });
@@ -2653,33 +2653,44 @@
       $('hamBody').innerHTML = h;
     }
 
+    // Show visitor details in hamburger panel when card is clicked
+    function showHamVisitorDetail(sessionId) {
+      const sess = Store.findSession(sessionId);
+      if (!sess) return;
+      pendingCheckoutId = sessionId;
+
+      // Build detailed view for the session
+      const h = gh(sess.hostId || '');
+      const details = `
+    <div style="padding:10px">
+      <div class="card-title" style="margin-bottom:8px">${sess.name}</div>
+      <div class="data-box" style="margin-bottom:10px">
+        <div class="dr"><div class="dl">Company</div><div class="dv">${sess.company || '—'}</div></div>
+        <div class="dr"><div class="dl">Host</div><div class="dv">${sess.host || h?.name || '—'}</div></div>
+        <div class="dr"><div class="dl">RFID</div><div class="dv mono">${sess.rfid}</div></div>
+        <div class="dr"><div class="dl">In Time</div><div class="dv">${sess.inTime ? fmtD(sess.inTime) + ' ' + fmtT(sess.inTime) : '—'}</div></div>
+        <div class="dr"><div class="dl">Purpose</div><div class="dv">${sess.purpose || '—'}</div></div>
+      </div>
+      <div class="sess-card-actions" style="margin-top:10px">
+        <button class="btn btn-s" onclick="closeModal('coModal');renderHamBody()">Back</button>
+        <button class="btn btn-d" onclick="initiateHamCheckout('${sessionId}')">Checkout ${sess.name}</button>
+      </div>
+    </div>`;
+
+      $('coModalTitle').textContent = `Details: ${sess.name}`;
+      $('coModalText').innerHTML = `<pre style="font-family:monospace;font-size:11px;white-space:pre-wrap">${sess.rfid}\n${sess.name}\n${sess.company || '—'}\n${sess.inTime ? fmtT(sess.inTime) : '—'}</pre>`;
+      closeHam();
+      openModal('coModal');
+    }
+
     function initiateHamCheckout(sessionId) {
       const s = Store.findSession(sessionId);
       if (!s) return;
       pendingCheckoutId = sessionId;
       $('coModalTitle').textContent = `Checkout: ${s.name}`;
-      $('coModalText').textContent = `Confirm checkout for ${s.name}? Ensure RFID tag "${s.rfid}" has been collected and returned.`;
+      $('coModalText').textContent = `Confirm checkout for ${s.name}?\nRFID: ${s.rfid}\nCompany: ${s.company || '—'}\n\nEnsure RFID tag "${s.rfid}" has been collected and returned.`;
       closeHam();
       openModal('coModal');
-    }
-
-    // FIX 8: After hamburger checkout, reset to welcome — do NOT show step 9 with old data
-    function executeCheckout() {
-      if (!pendingCheckoutId) return;
-      const s = Store.findSession(pendingCheckoutId);
-      if (!s) return;
-      Store.checkoutSession(pendingCheckoutId);
-      closeModal('coModal');
-      renderHamBody();
-      toast(`${s.name} checked out. RFID ${s.rfid} released.`, 'ok');
-      // FIX 8: Properly reset state — do not display previous checkout details
-      stopCam(); clearCountdown(); clearPoller();
-      if (S.waitTmr) { clearInterval(S.waitTmr); S.waitTmr = null; }
-      stopFaceCheck();
-      S = mkState();          // full reset
-      hideStatus();
-      render();               // go back to Welcome (step 0)
-      pendingCheckoutId = null;
     }
 
     // ════════════════════════════════════════════════════════
@@ -3621,19 +3632,15 @@
           <!-- CHANGE 1: Searchable country code dropdown replaces native select -->
           <div class="phone-group">
             ${ccDropdown}
-            <div class="phone-input-wrap" style="position:relative; display:flex; flex:1;">
+            <div class="phone-input-wrap" style="display:flex; flex:1;">
               <input type="tel" id="fph" placeholder="${COUNTRY_CODES[v.countryCode || 'IN'].length} digits"
                 value="${v.phone}" maxlength="${COUNTRY_CODES[v.countryCode || 'IN'].length}"
-                oninput="S.v.phone=this.value.replace(/\\D/g,'');this.value=S.v.phone;onPhoneLive()"
-                onblur="onPhoneLive()" style="padding-right: 90px; width: 100%;"/>
-              <button class="btn btn-p" id="btnPhoneValidate" onclick="checkPhoneEmail()" 
-                      style="position: absolute; right: 4px; top: 4px; bottom: 4px; padding: 0 14px; font-size: 11px; height: 32px; border-radius: 6px; z-index: 10; display: flex; align-items: center; justify-content: center; gap: 4px;">
-                ${ic(I.search, 11)} Validate
-              </button>
+                oninput="S.v.phone=this.value.replace(/[^0-9]/g,'');this.value=S.v.phone;onPhoneLive()"
+                onblur="onPhoneLive()" style="width: 100%;"/>
             </div>
           </div>
           <span class="ferr" id="fph_e"></span>
-          <span class="fhint" id="fph_hint">Format: ${COUNTRY_CODES[v.countryCode || 'IN'].name} — starts with ${COUNTRY_CODES[v.countryCode || 'IN'].pattern.toString().replace(/\//g, '')}</span>
+          <span class="fhint" id="fph_hint">Format: ${COUNTRY_CODES[v.countryCode || 'IN'].name} — starts with ${COUNTRY_CODES[v.countryCode || 'IN'].pattern.toString().slice(1, -1)}</span>
         </div>
         <div class="field full">
           <label>Email <span style="font-weight:400;color:var(--faint)">(optional)</span></label>
@@ -3642,38 +3649,9 @@
           <span class="ferr" id="fem_e"></span>
         </div>
       </div>
-      ${!S.phoneEmailDone ? `
-        <div style="margin-top:12px">
-          <button class="btn btn-p btn-full" onclick="checkPhoneEmail()">
-            ${ic(I.arrowL, 13)} Validate &amp; Continue to Registration
-          </button>
-        </div>
-      ` : ''}
     </div>`;
 
-      // ── PHASE 2: Rest of form (shown after phone/email validated) ──
-      const hopts = HOSTS.map(h => `<option value="${h.id}" ${v.hostId === h.id ? 'selected' : ''}>${h.name} — ${h.dept}</option>`).join('');
-      const hcard = v.hostId ? (() => { const h = gh(v.hostId); return h ? `<div class="host-card"><div class="host-av">${h.ini}</div><div><div style="font-size:12px;font-weight:600">${h.name}</div><div style="font-size:10px;color:var(--muted)">${h.dept}</div></div></div>` : '' })() : '';
-
-      const teamFields = v.visitorType === 'Team' ? `
-    <div class="field">
-      <label>Team Count <span class="req">*</span></label>
-      <input type="number" id="teamCount" min="2" value="${v.teamCount || 2}" oninput="setTeamCount(this.value)" style="appearance:textfield"/>
-      <span class="ferr" id="teamCount_e"></span>
-    </div>
-    <div class="field full">
-      <label>Team Name <span style="font-weight:400;color:var(--faint)">(optional)</span></label>
-      <input type="text" id="teamName" placeholder="e.g. Sales Team" value="${v.teamName}" oninput="S.v.teamName=this.value"/>
-    </div>
-    ${Array.from({ length: v.teamCount || 2 }, (_, i) => `
-      <div class="field full">
-        <label>Member ${i + 1} Name <span class="req">*</span></label>
-        <input type="text" id="teamMember${i}" placeholder="Member ${i + 1} Name" value="${v.teamMembers[i] || ''}" oninput="S.v.teamMembers[${i}]=this.value"/>
-        <span class="ferr" id="teamMember${i}_e"></span>
-      </div>`).join('')}
-  ` : '';
-
-      // Returned-visitor appended block — plain JS string, no nested backtick in phase2
+      // Returned-visitor appended block — pre-rendered clean HTML, no extra details
       const rvDetail = S.returningVisitorDetail ? `
         <div>
           <div class="phase-separator">
@@ -3690,32 +3668,60 @@
           <!-- Compact summary row -->
           <div class="data-box" style="margin-bottom:10px">
             <div class="dr"><div class="dl">Last Visit</div><div class="dv">${S.returningVisitorDetail.created_at ? fmtD(S.returningVisitorDetail.created_at) : '—'}</div></div>
-            <div class="dr"><div class="dl">Last Host</div><div class="dv">${S.returningVisitorDetail.host_name || '—'}</div></div>
-            <div class="dr"><div class="dl">Last Status</div><div class="dv"><span class="badge badge-blue">${S.returningVisitorDetail.status || '—'}</span></div></div>
-            <div class="dr"><div class="dl">Visitor Type</div><div class="dv">${S.returningVisitorDetail.visitor_type || 'Individual'}</div></div>
-            ${S.returningVisitorDetail.visitor_type === 'Team' ? '<div class="dr"><div class="dl">Team Name</div><div class="dv">' + (S.returningVisitorDetail.team_name || '—') + '</div></div><div class="dr"><div class="dl">Team Count</div><div class="dv">' + (S.returningVisitorDetail.team_count || 0) + '</div></div>' : ''}
+            <div class="dr"><div class="dl">Last Host</div><div class="dv">` + (S.returningVisitorDetail.host_name || '—') + `</div></div>
+            <div class="dr"><div class="dl">Last Status</div><div class="dv"><span class="badge badge-blue">` + (S.returningVisitorDetail.status || '—') + `</span></div></div>
+            <div class="dr"><div class="dl">Visitor Type</div><div class="dv">` + (S.returningVisitorDetail.visitor_type || 'Individual') + `</div></div>
+            ` + (S.returningVisitorDetail.visitor_type === 'Team' ? '<div class="dr"><div class="dl">Team Name</div><div class="dv">' + (S.returningVisitorDetail.team_name || '—') + '</div></div><div class="dr"><div class="dl">Team Count</div><div class="dv">' + (S.returningVisitorDetail.team_count || 0) + '</div></div>' : '') + `
           </div>
 
           <!-- Previous visit photo -->
-          ${S.returningVisitorDetail.photo_b64 ? '<div style="margin-bottom:10px;display:flex;align-items:center;gap:10px"><div style="width:60px;height:60px;border-radius:8px;overflow:hidden;border:1px solid var(--border);flex-shrink:0;display:flex;align-items:center;justify-content:center;background:var(--bg)"><img src="' + S.returningVisitorDetail.photo_b64 + '" style="width:100%;height:100%;object-fit:cover" alt="Previous visit photo" onerror="this.style.display=\'none\'"></div><div style="flex:1"><div style="font-size:11px;color:var(--muted);font-weight:500">Photo from previous visit</div><div style="font-size:10px;color:var(--faint)">Verify current photo at checkout</div></div></div>' : ''}
-
-          <!-- Full appended detail fields -->
-          <div class="fg">
-            <div class="field"><label>ID Type <span style="font-size:9.5px;color:var(--faint);font-weight:400">[auto-filled]</span></label><input type="text" value="' + (S.returningVisitorDetail.id_type || '') + '" disabled style="background:var(--bg);font-size:12px;color:var(--muted)"/></div>
-            ${S.returningVisitorDetail.visitor_type === 'Team' ? '<div class="dr"><div class="dl">Team Name</div><div class="dv">' + (S.returningVisitorDetail.team_name || '—') + '</div></div><div class="dr"><div class="dl">Team Count</div><div class="dv">' + (S.returningVisitorDetail.team_count || 0) + '</div></div>' : ''}
-          </div>
-
-          <div class="fg">
-            <div class="field"><label>ID Number <span style="font-size:9.5px;color:var(--faint);font-weight:400">[auto-filled]</span></label><input type="text" value="' + (S.returningVisitorDetail.id_number || '') + '" disabled style="background:var(--bg);font-size:12px;color:var(--muted);font-family:var(--mono);letter-spacing:1px"/></div>
-            <div class="field"><label>Appointment <span style="font-size:9.5px;color:var(--faint);font-weight:400">[auto-filled]</span></label><input type="text" value="' + (S.returningVisitorDetail.had_appointment ? 'Yes — ' + (S.returningVisitorDetail.appointment_id || 'N/A') : 'No') + '" disabled style="background:var(--bg);font-size:12px;color:var(--muted)"/></div>
-            <div class="field"><label>RFID Tag <span style="font-size:9.5px;color:var(--faint);font-weight:400">[last visit]</span></label><input type="text" value="' + (S.returningVisitorDetail.rfid_tag || '—') + '" disabled style="background:var(--bg);font-size:12px;color:var(--muted);font-family:var(--mono)"/></div>
-            <div class="field"><label>Last Check-in <span style="font-size:9.5px;color:var(--faint);font-weight:400">[auto-filled]</span></label><input type="text" value="' + (S.returningVisitorDetail.in_time ? fmtD(new Date(S.returningVisitorDetail.in_time)) : '—') + '" disabled style="background:var(--bg);font-size:12px;color:var(--muted)"/></div>
-          </div>
+          ` + (S.returningVisitorDetail.photo_b64 ? '<div style="margin-bottom:10px;display:flex;align-items:center;gap:10px"><div style="width:60px;height:60px;border-radius:8px;overflow:hidden;border:1px solid var(--border);flex-shrink:0;display:flex;align-items:center;justify-content:center;background:var(--bg)"><img src="' + S.returningVisitorDetail.photo_b64 + '" style="width:100%;height:100%;object-fit:cover" alt="Previous visit photo" onerror="this.style.display=\'none\'"></div><div style="flex:1"><div style="font-size:11px;color:var(--muted);font-weight:500">Photo from previous visit</div><div style="font-size:10px;color:var(--faint)">Verify current photo at checkout</div></div></div>' : '') + `
         </div>
       ` : '';
 
       const purposeOpts = ['Business Meeting', 'Interview', 'Delivery / Courier', 'Maintenance / Vendor', 'Personal Visit', 'Other']
         .map(p => `<option ${v.purpose === p ? 'selected' : ''}>${p}</option>`).join('');
+
+      const teamFields = v.visitorType === 'Team' ? `
+        <div class="field full">
+          <label>Team Name <span class="req">*</span></label>
+          <input type="text" id="fteamname" placeholder="e.g. Alpha Team" value="${v.teamName || ''}"
+            oninput="S.v.teamName=this.value"/>
+        </div>
+        <div class="field">
+          <label>Team Size (including you) <span class="req">*</span></label>
+          <input type="number" id="teamCount" min="2" max="20" value="${v.teamCount || 2}"
+            onchange="setTeamCount(this.value)" oninput="setTeamCount(this.value)"/>
+          <span class="ferr" id="teamCount_e"></span>
+        </div>
+        <div class="field full">
+          <label>Team Members Name <span class="req">*</span></label>
+          <div style="display:flex;flex-direction:column;gap:8px;margin-top:6px">
+            ${(v.teamMembers || []).map((m, i) => `
+              <div style="display:flex;flex-direction:column;gap:3px">
+                <input type="text" id="teamMember${i}" placeholder="Member ${i + 1} Name" value="${m || ''}"
+                  oninput="S.v.teamMembers[${i}]=this.value"/>
+                <span class="ferr" id="teamMember${i}_e" style="font-size:10px"></span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      ` : '';
+
+      const hopts = HOSTS.map(h => `<option value="${h.id}" ${v.hostId === h.id ? 'selected' : ''}>${h.name} (${h.dept})</option>`).join('');
+
+      const hostSelected = gh(v.hostId);
+      const hcard = hostSelected ? `
+        <div class="info-box ok" style="margin-top:8px; display:flex; align-items:center; gap:10px;">
+          <div style="width:36px; height:36px; border-radius:50%; background:var(--blue-t); color:var(--blue); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:14px; border:1px solid var(--blue-b)">
+            ${hostSelected.ini || initials(hostSelected.name)}
+          </div>
+          <div>
+            <div style="font-weight:600; font-size:12px; color:var(--text)">${hostSelected.name}</div>
+            <div style="font-size:10.5px; color:var(--muted)">${hostSelected.dept} · ${hostSelected.email}</div>
+          </div>
+        </div>
+      ` : '';
 
       const phase2 = S.phoneEmailDone ? `
     <div>
@@ -3734,22 +3740,21 @@
         </div>
       ` : ''}
       <div class="fg">
-        <div class="field full field-pos-rel">
+        <div class="field full field-pos-rel" style="position:relative;">
           <label>Full Name <span class="req">*</span></label>
           <input type="text" id="fname" placeholder="e.g. Zara" value="${v.name}"
-            oninput="S.v.name=this.value;onNameInput(this.value)"
-            onblur="hideNameSuggestions()" autocomplete="off"/>
-          <div class="autofill-dropdown" id="nameSuggestions" style="display:none"></div>
+            oninput="onNameInput(this.value)" onblur="hideNameSuggestions()"/>
           <span class="ferr" id="fname_e"></span>
+          <div class="autofill-dropdown" id="nameSuggestions" style="display:none"></div>
         </div>
-        <div class="field">
-          <label>Company <span class="req">*</span></label>
-          <input type="text" id="fco" placeholder="e.g. Infosys Ltd." value="${v.company}" oninput="S.v.company=this.value"/>
-          <span class="ferr" id="fco_e"></span>
+        <div class="field full">
+          <label>Company / Organization <span style="font-weight:400;color:var(--faint)">(optional)</span></label>
+          <input type="text" id="fco" placeholder="e.g. Acme Corp" value="${v.company}"
+            oninput="S.v.company=this.value"/>
         </div>
         <div class="field">
           <label>Visitor Type <span class="req">*</span></label>
-          <select id="fvisitorType" onchange="onVisitorTypeChange(this.value)">
+          <select id="fvistype" onchange="onVisitorTypeChange(this.value)">
             <option value="Individual" ${v.visitorType === 'Individual' ? 'selected' : ''}>Individual</option>
             <option value="Team" ${v.visitorType === 'Team' ? 'selected' : ''}>Team</option>
           </select>
@@ -3758,7 +3763,7 @@
         <div class="field full">
           <label>Purpose <span class="req">*</span></label>
           <select id="fpur" onchange="onPurposeChange(this.value)">
-            <option value="">Select…</option>
+            <option value="">Select purpose…</option>
             ${purposeOpts}
           </select>
           <span class="ferr" id="fpur_e"></span>
@@ -3790,67 +3795,14 @@
           <span class="ferr" id="fhost_e"></span>
            ${hcard}
          </div>
-            <div class="dr"><div class="dl">Last Status</div><div class="dv"><span class="badge badge-blue">${S.returningVisitorDetail.status || '—'}</span></div></div>
-            <div class="dr"><div class="dl">Visitor Type</div><div class="dv">${S.returningVisitorDetail.visitor_type || 'Individual'}</div></div>
-            ${S.returningVisitorDetail.visitor_type === 'Team' ? `
-            <div class="dr"><div class="dl">Team Name</div><div class="dv">${S.returningVisitorDetail.team_name || '—'}</div></div>
-            <div class="dr"><div class="dl">Team Count</div><div class="dv">${S.returningVisitorDetail.team_count || 0}</div></div>` : ''}
-          </div>
+      </div>
+      ${rvDetail}
+    </div>` : '';
 
-          <!-- Previous visit photo -->
-          ${S.returningVisitorDetail.photo_b64 ? `
-          <div style="margin-bottom:10px;display:flex;align-items:center;gap:10px">
-            <div style="width:60px;height:60px;border-radius:8px;overflow:hidden;border:1px solid var(--border);flex-shrink:0;display:flex;align-items:center;justify-content:center;background:var(--bg)">
-              <img src="${S.returningVisitorDetail.photo_b64}" style="width:100%;height:100%;object-fit:cover" alt="Previous visit photo" onerror="this.style.display='none'">
-            </div>
-            <div style="flex:1">
-              <div style="font-size:11px;color:var(--muted);font-weight:500">Photo from previous visit</div>
-              <div style="font-size:10px;color:var(--faint)">Verify current photo at checkout</div>
-            </div>
-          </div>` : ''}
-
-          <!-- Full appended detail fields -->
-          <div class="fg">
-            <div class="field">
-              <label>ID Type <span style="font-size:9.5px;color:var(--faint);font-weight:400">[auto-filled]</span></label>
-              <input type="text" value="${S.returningVisitorDetail.id_type || ''}" disabled style="background:var(--bg);font-size:12px;color:var(--muted)"/>
-            </div>
-            <div class="field">
-              <label>ID Number <span style="font-size:9.5px;color:var(--faint);font-weight:400">[auto-filled]</span></label>
-              <input type="text" value="${S.returningVisitorDetail.id_number || ''}" disabled style="background:var(--bg);font-size:12px;color:var(--muted);font-family:var(--mono);letter-spacing:1px"/>
-            </div>
-            <div class="field">
-              <label>Appointment <span style="font-size:9.5px;color:var(--faint);font-weight:400">[auto-filled]</span></label>
-              <input type="text" value="${S.returningVisitorDetail.had_appointment ? 'Yes — ' + (S.returningVisitorDetail.appointment_id || 'N/A') : 'No'}" disabled style="background:var(--bg);font-size:12px;color:var(--muted)"/>
-            </div>
-            <div class="field">
-              <label>RFID Tag <span style="font-size:9.5px;color:var(--faint);font-weight:400">[last visit]</span></label>
-              <input type="text" value="${S.returningVisitorDetail.rfid_tag || '—'}" disabled style="background:var(--bg);font-size:12px;color:var(--muted);font-family:var(--mono)"/>
-            </div>
-            <div class="field">
-              <label>Last Check-in <span style="font-size:9.5px;color:var(--faint);font-weight:400">[auto-filled]</span></label>
-              <input type="text" value="${S.returningVisitorDetail.in_time ? fmtD(new Date(S.returningVisitorDetail.in_time)) : '—'}" disabled style="background:var(--bg);font-size:12px;color:var(--muted)"/>
-            </div>
-            <div class="field">
-              <label>Last Check-out <span style="font-size:9.5px;color:var(--faint);font-weight:400">[auto-filled]</span></label>
-              <input type="text" value="${S.returningVisitorDetail.out_time ? fmtD(new Date(S.returningVisitorDetail.out_time)) : '—'}" disabled style="background:var(--bg);font-size:12px;color:var(--muted)"/>
-            </div>
-            <div class="field">
-              <label>Last Duration <span style="font-size:9.5px;color:var(--faint);font-weight:400">[auto-filled]</span></label>
-              <input type="text" value="${S.returningVisitorDetail.duration_minutes != null ? S.returningVisitorDetail.duration_minutes + ' min' : '—'}" disabled style="background:var(--bg);font-size:12px;color:var(--muted)"/>
-            </div>
-            <div class="field">
-              <label>Agreement Signed <span style="font-size:9.5px;color:var(--faint);font-weight:400">[auto-filled]</span></label>
-              <input type="text" value="${S.returningVisitorDetail.agreement_signed ? '&#x2713; Signed' : 'Not signed'}" disabled style="background:var(--bg);font-size:12px;color:${S.returningVisitorDetail.agreement_signed ? 'var(--green)' : 'var(--red)'}"/>
-            </div>
-            <div class="field">
-              <label>Approval Status <span style="font-size:9.5px;color:var(--faint);font-weight:400">[auto-filled]</span></label>
-              <input type="text" value="${S.returningVisitorDetail.approval_status || '—'}" disabled style="background:var(--bg);font-size:12px;color:var(--muted)"/>
-            </div>
-            <div class="field full">
-              <label>Recurring Visit Record <span style="font-size:9.5px;color:var(--faint);font-weight:400">[read-only]</span></label>
-              <div class="data-box" style="font-size:10.5px;color:var(--text-m);line-height:1.7">
-                <div>Visit ID: <span style="font-family:var(--mono);color:var(--blue)">${S.returningVisitorDetail.id || '—'}</span></div>
+      return `<div class="card">
+    <div class="card-hd">
+      <div class="ci blue">${ic(I.user)}</div>
+      <div class="card-title">Visitor Registration</div>
       <div class="card-sub">Fields marked <span class="req">*</span> are required.</div>
     </div>
     <div class="card-body">
@@ -3872,7 +3824,6 @@
       </div>
   </div>`;
     }
-
     function onPhoneLive() {
       const phone = S.v.phone;
       const cc = S.v.countryCode || 'IN';
@@ -3884,6 +3835,9 @@
         if (er) er.textContent = res.ok ? '' : res.error;
         const el = $('fph');
         if (el) el.classList.toggle('err', !res.ok);
+        if (res.ok) {
+          checkPhoneEmail();
+        }
       }
     }
 
