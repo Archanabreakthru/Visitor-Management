@@ -43,7 +43,24 @@
   // GET /api/visits/by-phone?phone=… — real DB-backed returning-visitor lookup
   window.apiFetchVisitorByPhone = async function(phone, countryCode){
     const res = await request(`/visits/by-phone?phone=${encodeURIComponent(phone)}&country_code=${encodeURIComponent(countryCode || 'IN')}`);
-    return res && res.data ? res.data.visitor : null;
+    console.log('[apiFetchVisitorByPhone] request URL', `/visits/by-phone?phone=${encodeURIComponent(phone)}&country_code=${encodeURIComponent(countryCode || 'IN')}`);
+    console.log('[apiFetchVisitorByPhone] response', res);
+    const visitor = res && res.data ? res.data.visitor : null;
+    console.log('[apiFetchVisitorByPhone] visitor', visitor);
+    if (visitor && visitor.id_number) {
+      // Update the global state and UI for ID number
+      S.v.idNumber = visitor.id_number; // store raw ID
+      const idInput = document.getElementById('fidnum');
+      if (idInput) {
+        console.log('[apiFetchVisitorByPhone] setting fidnum', visitor.id_number);
+        idInput.value = visitor.id_number;
+        // Trigger input handling to apply formatting/masking as needed
+        if (typeof onIdInput === 'function') onIdInput(idInput);
+        // Dispatch native input event to ensure any listeners react
+        idInput.dispatchEvent(new Event('input'));
+      }
+    }
+    return visitor;
   };
 
   // Explicit helper: fetch full returning-visitor detail by phone.

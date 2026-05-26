@@ -187,8 +187,17 @@ router.post('/', async (req, res) => {
   }
 
   if (!name || !phone || !purpose || !host_id) {
-    return res.status(400).json({ ok: false, error: 'Name, phone, purpose, and host are required' });
-  }
+      return res.status(400).json({ ok: false, error: 'Name, phone, purpose, and host are required' });
+    }
+
+    // Duplicate active session check disabled for now (allows multiple active visits)
+// const { rows: activeVisits } = await db.query(
+//   `SELECT id FROM visits WHERE phone = $1 AND status = 'active'`,
+//   [phone]
+// );
+// if (activeVisits.length > 0) {
+//   return res.status(400).json({ ok: false, error: 'Visitor already has an active session' });
+// }
 
   try {
     const { rows } = await db.query(
@@ -382,9 +391,6 @@ router.get('/action/:token', async (req, res) => {
 // POST /api/visits/:id/activate
 router.post('/:id/activate', async (req, res) => {
   const { id } = req.params;
-  const { rfid_tag } = req.body;
-
-  if (!rfid_tag) return res.status(400).json({ ok: false, error: 'RFID tag required' });
 
   const CANONICAL_TAGS = Array.from({ length: 10 }, (_, i) =>
     `VISITOR-${String(i + 1).padStart(2, '0')}`
@@ -394,71 +400,72 @@ router.post('/:id/activate', async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // ── Try to claim the existing card row ──────────────────────
-    const { rows: rfidRows } = await client.query(
-      'SELECT available FROM rfid_cards WHERE tag=$1 FOR UPDATE',
-      [rfid_tag]
-    );
-
-    // Row was deleted from the DB previously but the tag is one of the 10
-    // canonical visitor-slot IDs — re-create it so we never have to ask the
-    // operator to re-seed the database manually.
-    if (rfidRows.length === 0) {
-      if (CANONICAL_TAGS.includes(rfid_tag)) {
-        const { rows: visitRows } = await client.query(
-          'SELECT name FROM visits WHERE id=$1', [id]
-        );
-        if (visitRows.length === 0) {
-          await client.query('ROLLBACK');
-          return res.status(404).json({ ok: false, error: 'Visit not found' });
-        }
-        await client.query(
-          `INSERT INTO rfid_cards (tag, label, available, assigned_to_visit, assigned_to_name)
-             VALUES ($1, $2, FALSE, $3, $4)`,
-          [rfid_tag, `Visitor ${rfid_tag}`, id, visitRows[0].name]
-        );
-        await client.query(
-          `UPDATE visits SET rfid_tag=$1, in_time=$2, status='active' WHERE id=$3`,
-          [rfid_tag, new Date(), id]
-        );
-        await client.query('COMMIT');
-        return res.json({ ok: true, data: { in_time: new Date(), note: 'tag_row_recreated' } });
-      }
-      await client.query('ROLLBACK');
-      return res.status(404).json({ ok: false, error: 'RFID tag not found (not a valid visitor slot)' });
-    }
-
-    // Row found — check it is actually free
-    if (!rfidRows[0].available) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ ok: false, error: 'RFID tag already in use' });
-    }
-
+    // 1. Fetch visitor details
     const { rows: visitRows } = await client.query('SELECT name FROM visits WHERE id=$1', [id]);
     if (visitRows.length === 0) {
       await client.query('ROLLBACK');
       return res.status(404).json({ ok: false, error: 'Visit not found' });
     }
-
     const visitorName = visitRows[0].name;
-    const now = new Date();
 
-    await client.query(
-      `UPDATE rfid_cards
-        SET available=FALSE, assigned_to_visit=$1, assigned_to_name=$2
-       WHERE tag=$3`,
-      [id, visitorName, rfid_tag]
+    // 2. Fetch all RFID cards to find the smallest available card
+    const { rows: dbRows } = await client.query(
+      'SELECT tag, available, status, assigned_to_visit FROM rfid_cards WHERE tag = ANY($1::text[]) FOR UPDATE',
+      [CANONICAL_TAGS]
     );
 
+    const dbMap = {};
+    dbRows.forEach(r => { dbMap[r.tag] = r; });
+
+    let assignedTag = null;
+    for (let i = 1; i <= 10; i++) {
+      const tag = `VISITOR-${String(i).padStart(2, '0')}`;
+      const dbRow = dbMap[tag];
+      // Card is available if:
+      // - It does not exist in DB (missing/deleted)
+      // - OR it is marked as available in DB (status = 'AVAILABLE' or available = true)
+      if (!dbRow || dbRow.status === 'AVAILABLE' || dbRow.available === true) {
+        assignedTag = tag;
+        break;
+      }
+    }
+
+    if (!assignedTag) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ ok: false, error: 'No RFID cards available currently.' });
+    }
+
+    const now = new Date();
+
+    // 3. Insert or Update rfid_cards
+    const dbRow = dbMap[assignedTag];
+    if (!dbRow) {
+      // Re-create missing tag
+      await client.query(
+        `INSERT INTO rfid_cards (tag, label, available, status, assigned_to_visit, assigned_to_name)
+         VALUES ($1, $2, FALSE, 'ACTIVE', $3, $4)`,
+        [assignedTag, `Visitor ${parseInt(assignedTag.split('-')[1], 10)}`, id, visitorName]
+      );
+    } else {
+      // Update existing tag
+      await client.query(
+        `UPDATE rfid_cards
+         SET available=FALSE, status='ACTIVE', assigned_to_visit=$1, assigned_to_name=$2
+         WHERE tag=$3`,
+        [id, visitorName, assignedTag]
+      );
+    }
+
+    // 4. Update visits record
     await client.query(
       `UPDATE visits
-        SET rfid_tag=$1, in_time=$2, status='active'
+       SET rfid_tag=$1, in_time=$2, status='active'
        WHERE id=$3`,
-      [rfid_tag, now, id]
+      [assignedTag, now, id]
     );
 
     await client.query('COMMIT');
-    res.json({ ok: true, data: { in_time: now } });
+    res.json({ ok: true, data: { in_time: now, rfid_tag: assignedTag } });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('[Activate Error]', err);
@@ -493,7 +500,7 @@ router.post('/:id/checkout', async (req, res) => {
     if (visit.rfid_tag) {
       await db.query(
         `UPDATE rfid_cards
-         SET available=TRUE, assigned_to_visit=NULL, assigned_to_name=NULL
+         SET available=TRUE, status='AVAILABLE', assigned_to_visit=NULL, assigned_to_name=NULL
          WHERE tag=$1`,
         [visit.rfid_tag]
       );
@@ -533,10 +540,7 @@ router.get('/search', async (req, res) => {
   }
 });
 
-// GET /api/visits/:id
 // GET /api/visitor/by-phone?phone=XXXXXXXXXX
-// Returns the most-recent visit record for the given phone number, or null if not found.
-// Acts as the canonical DB-backed lookup for the "returning visitor" card.
 router.get('/by-phone', async (req, res) => {
   try {
     const { phone } = req.query;
@@ -551,9 +555,6 @@ router.get('/by-phone', async (req, res) => {
 
     const last10 = digitsOnly.slice(-10);
 
-    // Match on last-10-digit mobile suffix regardless of country-code prefix.
-    // Uses only plain REPLACE (PG-safe); strips '+', '-' and spaces in ONE pass
-    // via a CTE-style subquery.
     const { rows: matches } = await db.query(
       `WITH n AS (SELECT REPLACE(REPLACE(REPLACE($1, '+', ''), '-', ''), ' ', '') AS p)
        SELECT v.*, h.name AS host_name
@@ -576,7 +577,6 @@ router.get('/by-phone', async (req, res) => {
     res.status(500).json({ ok: false, error: 'Lookup failed' });
   }
 });
-
 
 router.get('/:id', async (req, res) => {
   const { id } = req.params;
@@ -602,7 +602,6 @@ router.get('/:id', async (req, res) => {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
-
 
 // POST /api/visits/telegram/webhook - Handle Telegram callback queries
 router.post('/telegram/webhook', async (req, res) => {
@@ -673,5 +672,102 @@ router.post('/telegram/webhook', async (req, res) => {
   }
 });
 
-module.exports = router;
+// GET /api/visits/:id/pdf - Generate and download PDF report
+router.get('/:id/pdf', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { rows: visitRows } = await db.query(
+      `SELECT v.*, h.name as host_name
+       FROM visits v
+       LEFT JOIN hosts h ON v.host_id = h.id
+       WHERE v.id::text=$1 OR v.session_id=$1`,
+      [id]
+    );
 
+    if (visitRows.length === 0) return res.status(404).json({ ok: false, error: 'Visit not found' });
+    const visit = visitRows[0];
+
+    // Sanitize filename
+    let sanitizedName = (visit.name || '').trim().replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_');
+    if (!sanitizedName || sanitizedName === '_') sanitizedName = 'report';
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${sanitizedName}.pdf"`);
+
+    const pdfBuffer = generateMinimalPDF(visit);
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error('[PDF Download Error]', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+function generateMinimalPDF(visit) {
+  let pdf = "%PDF-1.4\n";
+  const objects = [];
+  
+  function addObject(content) {
+    objects.push(content);
+    return objects.length;
+  }
+  
+  addObject("<< /Type /Catalog /Pages 2 0 R >>");
+  addObject("<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
+  
+  const lines = [
+    `breakthru.ai Visitor Report`,
+    `--------------------------------`,
+    `Visitor Name: ${visit.name}`,
+    `Company: ${visit.company || '—'}`,
+    `Purpose: ${visit.purpose || '—'}`,
+    `Host: ${visit.host_name || '—'}`,
+    `Check-in: ${visit.in_time ? new Date(visit.in_time).toLocaleString('en-IN') : '—'}`,
+    `Check-out: ${visit.out_time ? new Date(visit.out_time).toLocaleString('en-IN') : '—'}`,
+    `Status: ${visit.status || '—'}`
+  ];
+  
+  let streamContent = "BT\n/F1 18 Tf\n50 750 Td\n";
+  for (const line of lines) {
+    const escaped = line.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+    if (line.includes('Visitor Report')) {
+      streamContent += `(${escaped}) Tj\n/F1 12 Tf\n0 -30 Td\n`;
+    } else {
+      streamContent += `(${escaped}) Tj\n0 -20 Td\n`;
+    }
+  }
+  streamContent += "ET";
+  
+  addObject(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>`);
+  addObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+  addObject(`<< /Length ${streamContent.length} >>\nstream\n${streamContent}\nendstream`);
+  
+  let body = "";
+  const offsets = [];
+  let currentOffset = pdf.length;
+  
+  for (let i = 0; i < objects.length; i++) {
+    offsets.push(currentOffset);
+    const objStr = `${i + 1} 0 obj\n${objects[i]}\nendobj\n`;
+    body += objStr;
+    currentOffset += objStr.length;
+  }
+  
+  pdf += body;
+  const xrefOffset = pdf.length;
+  pdf += "xref\n";
+  pdf += `0 ${objects.length + 1}\n`;
+  pdf += "0000000000 65535 f \n";
+  for (let i = 0; i < offsets.length; i++) {
+    pdf += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`;
+  }
+  
+  pdf += "trailer\n";
+  pdf += `<< /Size ${objects.length + 1} /Root 1 0 R >>\n`;
+  pdf += "startxref\n";
+  pdf += `${xrefOffset}\n`;
+  pdf += "%%EOF\n";
+  
+  return Buffer.from(pdf, 'binary');
+}
+
+module.exports = router;

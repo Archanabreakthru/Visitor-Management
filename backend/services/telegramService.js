@@ -16,9 +16,15 @@ class TelegramService {
   initializeBot() {
     try {
       this.bot = new TelegramBot(this.botToken, { polling: true });
-      console.log('Telegram bot initialized successfully with polling mode');
+      // Add error handler to ignore duplicate polling conflicts
+      this.bot.on('error', (err) => {
+        if (err && err.code === 'ETELEGRAM' && err.message && err.message.includes('409')) {
+          console.warn('[Telegram Bot] Conflict error ignored (another instance may be running)');
+        } else {
+          console.error('[Telegram Bot] Unexpected error:', err);
+        }
+      });
 
-      // Forward callback queries to the local webhook handler so buttons work without ngrok
       this.bot.on('callback_query', async (callbackQuery) => {
         try {
           await fetch(`http://localhost:${process.env.PORT || 3001}/api/visits/telegram/webhook`, {
