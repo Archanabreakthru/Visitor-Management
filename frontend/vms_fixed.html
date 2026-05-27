@@ -827,7 +827,7 @@
       margin: 14px 0
     }
 
-    .badge {
+.badge {
       display: inline-flex;
       align-items: center;
       gap: 3px;
@@ -836,6 +836,41 @@
       font-size: 10px;
       font-weight: 600
     }
+
+    .num-stepper {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .stepper-btn {
+       width: 28px;
+       height: 28px;
+       border: 1px solid var(--border);
+       border-radius: 6px;
+       background: var(--bg);
+       font-size: 14px;
+       font-weight: 600;
+       cursor: pointer;
+       display: flex;
+       align-items: center;
+       justify-content: center;
+     }
+
+     .stepper-btn:hover {
+       background: var(--border);
+     }
+
+     /* Hide number input spinner arrows */
+     input[type="number"]::-webkit-inner-spin-button,
+     input[type="number"]::-webkit-outer-spin-button {
+       -webkit-appearance: none;
+       margin: 0;
+     }
+
+     input[type="number"] {
+       -moz-appearance: textfield;
+     }
 
     .badge-blue {
       background: var(--blue-t);
@@ -2127,28 +2162,31 @@
       }));
       const sessions = [];
 
-       let _rfidSynced = false;
+      async function syncRfidFromDb() {
+        try {
+          const cards = await window.apiListRfidAvailable();
+          RFID_POOL.forEach(t => t.assignedTo = null);
+          cards.forEach(c => {
+            const slot = RFID_POOL.find(t => t.tag === c.tag);
+            if (slot) slot.assignedTo = c.available ? null : '_taken';
+          });
+        } catch (e) {
+          console.warn('[RFID] DB sync failed:', e.message);
+        }
+      }
 
-       async function syncRfidFromDb() {
-         if (_rfidSynced || typeof window.apiListRfidAvailable !== 'function') return;
-         try {
-           const cards = await window.apiListRfidAvailable();
-           cards.forEach(c => {
-             const slot = RFID_POOL.find(t => t.tag === c.tag);
-             if (slot) slot.assignedTo = c.available ? null : '_taken';
-           });
-           _rfidSynced = true;
-         } catch (e) {
-           console.warn('[RFID] DB sync failed, using in-memory pool:', e.message);
-         }
-       }
+      async function refreshRfidFromDb() {
+        if (typeof window.apiListRfidAvailable !== 'function') return;
+        await syncRfidFromDb();
+        if (typeof renderPanel === 'function') renderPanel();
+      }
 
-       async function getAvailableTags() {
-         if (!_rfidSynced && typeof window.apiListRfidAvailable === 'function') {
-           await syncRfidFromDb();
-         }
-         return RFID_POOL.filter(t => !t.assignedTo);
-       }
+      async function getAvailableTags() {
+        if (typeof window.apiListRfidAvailable === 'function') {
+          await syncRfidFromDb();
+        }
+        return RFID_POOL.filter(t => !t.assignedTo);
+      }
       function getAllTags() { return RFID_POOL; }
       function assignTag(tag, visitorName) {
         const slot = RFID_POOL.find(t => t.tag === tag);
@@ -2495,6 +2533,7 @@
         approvalSent: false, poller: null,
         phoneEmailDone: false,      // FIX 4: progressive disclosure
         faceCheckInterval: null,    // FIX 1: face detection
+        isAutoCapturing: false,     // Auto-capture control flag
         aadhaarMasked: false,       // legacy Aadhaur mask flag
         idMasked: false,            // CHANGE 6: generic mask state (all ID types)
         idLastNUnmasked: 0,         // CHANGE 6: how many trailing chars stay visible
@@ -2693,12 +2732,55 @@
       openModal('coModal');
     }
 
+    function executeCheckout() {
+      if (!pendingCheckoutId) { closeModal('coModal'); return; }
+      const s = Store.findSession(pendingCheckoutId);
+      if (!s) { closeModal('coModal'); return; }
+      if (s.dbVisitId && typeof window.apiCheckoutVisit === 'function') {
+        window.apiCheckoutVisit(s.dbVisitId).catch(err => toast('Failed to checkout: ' + err.message, 'err'));
+      }
+      Store.checkoutSession(pendingCheckoutId);
+      pendingCheckoutId = null;
+      closeModal('coModal');
+      renderHamBody();
+      toast(`${s.name} checked out. RFID ${s.rfid} released.`, 'ok');
+    }
+
     // ════════════════════════════════════════════════════════
     //  FIX 6: Downloadable Report
     // ════════════════════════════════════════════════════════
     function downloadReport(sessionId) {
       const s = Store.findSession(sessionId);
       if (!s) { toast('Session not found', 'err'); return; }
+
+      const downloadFromBackend = async () => {
+        const BASE = 'http://localhost:3001/api';
+        const url = `${BASE}/visits/${s.dbVisitId}/pdf`;
+        try {
+          const response = await fetch(url);
+          if (!response.ok) throw new Error('PDF download failed');
+          const blob = new Blob([await response.arrayBuffer()], { type: 'application/pdf' });
+          const dlUrl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = dlUrl;
+          const cd = response.headers.get('Content-Disposition');
+          const match = cd && cd.match(/filename="([^"]+)"/);
+          a.download = match ? match[1] : (s.name.replace(/[^a-zA-Z0-9]/g, '_') || 'report') + '.pdf';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(dlUrl);
+          toast('Report downloaded.', 'ok');
+        } catch (err) {
+          toast('Failed to download PDF: ' + err.message, 'err');
+        }
+      };
+
+      if (s.dbVisitId) {
+        downloadFromBackend();
+        return;
+      }
+
       const dur = s.duration ?? Math.round((Date.now() - s.inTime) / 60000);
       const html = `<!DOCTYPE html>
 <html lang="en">
@@ -2752,11 +2834,11 @@
   <div class="footer">Generated: ${new Date().toLocaleString('en-IN')} · Breakthru.ai Visitor Management System</div>
 </body>
 </html>`;
-      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+      const blob = new Blob([html], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `visit-report-${s.name.replace(/\s+/g, '-').toLowerCase()}-${s.id}.html`;
+      a.download = `${s.name.replace(/[^a-zA-Z0-9]/g, '_') || 'report'}.pdf`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -2821,8 +2903,7 @@
           v.srcObject = stream;
           v.play();
           v.onloadedmetadata = () => {
-            setTimeout(startCountdown, 800);
-            startFaceCheck(videoId);  // FIX 1: begin face detection
+            startFaceCheck(videoId);  // FIX 1: begin face detection monitoring
           };
         })
         .catch(err => {
@@ -2855,15 +2936,17 @@
       S.faceCheckInterval = setInterval(() => {
         if (!S.camStream || S.photo) { stopFaceCheck(); return; }
         const v = $(videoId);
-        const alertEl = $('camAlert');
         if (!v) return;
         const w = v.videoWidth, h = v.videoHeight;
-        if (!w || !h) { showCamAlert('Waiting for camera…'); return; }
+        if (!w || !h) return;
         const result = analyzeFrame(v, w, h);
-        if (result.status === 'ok') {
-          hideCamAlert();
-        } else {
-          showCamAlert(result.msg);
+        if (S.isAutoCapturing === true) {
+          const alertEl = $('camAlert');
+          if (result.status === 'ok') {
+            hideCamAlert();
+          } else {
+            showCamAlert(result.msg);
+          }
         }
       }, 2000);
     }
@@ -2968,10 +3051,11 @@
       const ctx = c.getContext('2d');
       ctx.drawImage(v, 0, 0);
 
-      // 2 Validate: ask the analysis helper to confirm a visible human face
+// 2 Validate: ask the analysis helper to confirm a visible human face
       const faceResult = checkCapture(c);
       if (faceResult.status !== 'ok') {
         toast(faceResult.msg, 'err');
+        S.isAutoCapturing = false;
         // Keep live camera running — user can try again immediately
         setTimeout(startCountdown, 1200);
         return;
@@ -2997,7 +3081,7 @@
       renderCdOverlay();
       S.cdTmr = setInterval(() => {
         S.cdVal--;
-        if (S.cdVal <= 0) { clearCountdown(); capturePhoto('regVid'); }
+        if (S.cdVal <= 0) { S.isAutoCapturing = true; clearCountdown(); capturePhoto('regVid'); }
         else renderCdOverlay();
       }, 1000);
     }
@@ -3168,7 +3252,7 @@
       S.v.visitorType = value;
       if (value === 'Team') {
         S.v.teamCount = S.v.teamCount >= 2 ? S.v.teamCount : 2;
-        S.v.teamMembers = Array.from({ length: S.v.teamCount }, (_, i) => S.v.teamMembers[i] || '');
+        S.v.teamMembers = Array.from({ length: S.v.teamCount - 1 }, (_, i) => S.v.teamMembers[i] || '');
       } else { S.v.teamCount = 2; S.v.teamName = ''; S.v.teamMembers = []; }
       renderPanel();
     }
@@ -3177,7 +3261,16 @@
       let count = parseInt(value, 10);
       if (isNaN(count) || count < 2) count = 2;
       S.v.teamCount = count;
-      S.v.teamMembers = Array.from({ length: count }, (_, i) => S.v.teamMembers[i] || '');
+      S.v.teamMembers = Array.from({ length: count - 1 }, (_, i) => S.v.teamMembers[i] || '');
+      renderPanel();
+    }
+
+    function adjustTeamSize(delta) {
+      let count = (S.v.teamCount || 2) + delta;
+      if (count < 2) count = 2;
+      if (count > 20) count = 20;
+      S.v.teamCount = count;
+      S.v.teamMembers = Array.from({ length: count - 1 }, (_, i) => S.v.teamMembers[i] || '');
       renderPanel();
     }
 
@@ -3582,7 +3675,7 @@
       </div>
     </div>`;
 
-      // Camera column (always shown)
+// Camera column (always shown)
       const cameraCol = `
     <div>
       <label style="display:flex;align-items:center;gap:4px;margin-bottom:7px">
@@ -3604,10 +3697,10 @@
           <div class="cam-alert-overlay" id="camAlert"></div>
         </div>
         <div class="cam-actions">
-          <button class="btn btn-p" style="flex:1;font-size:11.5px;padding:8px 12px" onclick="capturePhoto('regVid')">
+          <button class="btn btn-p" style="flex:1;font-size:11.5px;padding:8px 12px" onclick="S.isAutoCapturing=true;capturePhoto('regVid')">
             ${ic(I.cam, 13)} Capture Now
           </button>
-          <button class="btn btn-s" style="font-size:11.5px;padding:8px 10px" onclick="clearCountdown();startCountdown()" title="Restart countdown">
+          <button class="btn btn-s" style="font-size:11.5px;padding:8px 10px" onclick="S.isAutoCapturing=true;clearCountdown();startCountdown()" title="Restart countdown">
             ${ic(I.ref, 12)}
           </button>
         </div>
@@ -3690,16 +3783,20 @@
         </div>
         <div class="field">
           <label>Team Size (including you) <span class="req">*</span></label>
-          <input type="number" id="teamCount" min="2" max="20" value="${v.teamCount || 2}"
-            onchange="setTeamCount(this.value)" oninput="setTeamCount(this.value)"/>
+          <div class="num-stepper">
+            <button type="button" class="stepper-btn" onclick="adjustTeamSize(-1)">–</button>
+            <input type="number" id="teamCount" min="2" max="20" value="${v.teamCount || 2}"
+              oninput="setTeamCount(this.value)" onchange="setTeamCount(this.value)" style="width:48px;text-align:center;appearance:textfield"/>
+            <button type="button" class="stepper-btn" onclick="adjustTeamSize(1)">+</button>
+          </div>
           <span class="ferr" id="teamCount_e"></span>
-        </div>
+</div>
         <div class="field full">
           <label>Team Members Name <span class="req">*</span></label>
           <div style="display:flex;flex-direction:column;gap:8px;margin-top:6px">
             ${(v.teamMembers || []).map((m, i) => `
               <div style="display:flex;flex-direction:column;gap:3px">
-                <input type="text" id="teamMember${i}" placeholder="Member ${i + 1} Name" value="${m || ''}"
+                <input type="text" id="teamMember${i}" placeholder="Member ${i + 2} Name" value="${m || ''}"
                   oninput="S.v.teamMembers[${i}]=this.value"/>
                 <span class="ferr" id="teamMember${i}_e" style="font-size:10px"></span>
               </div>
@@ -4209,12 +4306,12 @@
 </body></html>`;
       const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `badge-${S.v.name.replace(/\s+/g, '-').toLowerCase()}.html`;
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      toast('Badge downloaded. Open the file to print.', 'ok');
+      const iframe = document.createElement('iframe');
+      iframe.style.display = 'none';
+      iframe.src = url;
+      iframe.onload = () => { iframe.contentWindow.print(); };
+      document.body.appendChild(iframe);
+      toast('Print dialog opened.', 'ok');
     }
 
     function selectRFIDSlot(tag) { S.rfid = tag || null; renderPanel(); }
@@ -4408,12 +4505,12 @@
       if (S.v.visitorType === 'Team') {
         const count = S.v.teamCount || 0;
         const cntEl = $('teamCount'), cntEr = $('teamCount_e');
-        if (count < 2) { cntEl?.classList.add('err'); if (cntEr) cntEr.textContent = 'Team count must be 2 or more.'; ok = false; }
+        if (count < 2) { cntEl?.classList.add('err'); if (cntEr) cntEr.textContent = 'Minimum team size is 2'; ok = false; }
         else { cntEl?.classList.remove('err'); if (cntEr) cntEr.textContent = ''; }
         (S.v.teamMembers || []).forEach((name, i) => {
           const el = $(`teamMember${i}`), er = $(`teamMember${i}_e`);
           if (!el) return;
-          if (!name || !name.trim()) { el.classList.add('err'); if (er) er.textContent = `Member ${i + 1} name required.`; ok = false; }
+          if (!name || !name.trim()) { el.classList.add('err'); if (er) er.textContent = `Member ${i + 2} name required.`; ok = false; }
           else { el.classList.remove('err'); if (er) er.textContent = ''; }
         });
       }
@@ -4499,12 +4596,22 @@
     }
 
     function startNewVisitor() {
+      if (S.approvalSent && (S.step === 5 || S.step === 6 || S.step === 7)) {
+        toast('You are already notified to the host.', 'err');
+        return;
+      }
       stopCam(); clearCountdown(); clearPoller(); stopFaceCheck();
       if (S.waitTmr) { clearInterval(S.waitTmr); S.waitTmr = null; }
       S = mkState(); hideStatus(); render();
       toast('New visitor session started.', 'ok');
     }
-    function startNewVisitorFromHam() { closeHam(); startNewVisitor(); }
+    function startNewVisitorFromHam() {
+      if (S.approvalSent && (S.step === 5 || S.step === 6 || S.step === 7)) {
+        toast('You are already notified to the host.', 'err');
+        return;
+      }
+      closeHam(); startNewVisitor();
+    }
 
     // ════════════════════════════════════════════════════════
     //  RESET
