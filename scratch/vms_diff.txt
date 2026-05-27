@@ -1,0 +1,239 @@
+diff --git a/frontend/vms_fixed.html b/frontend/vms_fixed.html
+index 34fc59d..cb50fb1 100644
+--- a/frontend/vms_fixed.html
++++ b/frontend/vms_fixed.html
+@@ -1989,6 +1989,8 @@
+       }
+     }
+   </style>
++  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
++  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+ </head>
+ 
+ <body>
+@@ -2696,72 +2698,100 @@
+     // ════════════════════════════════════════════════════════
+     //  FIX 6: Downloadable Report
+     // ════════════════════════════════════════════════════════
+-    function downloadReport(sessionId) {
++        async function downloadReport(sessionId) {
+       const s = Store.findSession(sessionId);
+       if (!s) { toast('Session not found', 'err'); return; }
+-      const dur = s.duration ?? Math.round((Date.now() - s.inTime) / 60000);
+-      const html = `<!DOCTYPE html>
+-<html lang="en">
+-<head>
+-  <meta charset="UTF-8">
+-  <title>Visit Report — ${s.name}</title>
+-  <style>
+-    body { font-family: Arial, sans-serif; max-width: 620px; margin: 40px auto; color: #1e293b; padding: 0 20px; }
+-    h1  { color: #2563eb; font-size: 22px; margin-bottom: 4px; }
+-    h3  { color: #64748b; font-weight: 400; font-size: 14px; margin-top: 0; margin-bottom: 24px; }
+-    hr  { border: none; border-top: 1px solid #e2e8f0; margin: 20px 0; }
+-    table { width: 100%; border-collapse: collapse; }
+-    td  { padding: 10px 8px; border-bottom: 1px solid #e2e8f0; font-size: 13px; }
+-    td:first-child { color: #64748b; width: 140px; font-weight: 500; }
+-    .badge { display: inline-block; background: #f0fdf4; color: #16a34a; padding: 2px 10px; border-radius: 12px; font-size: 11px; border: 1px solid #bbf7d0; }
+-    .badge.completed { background: #fffbeb; color: #d97706; border-color: #fde68a; }
+-    .header-bar { background: #0a1628; color: #fff; padding: 16px 20px; border-radius: 10px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; }
+-    .header-bar h2 { margin: 0; font-size: 15px; }
+-    .header-bar span { font-size: 11px; opacity: .5; }
+-    .photo-frame { display: flex; align-items: center; gap: 10px; margin-top: -8px; margin-bottom: 14px; }
+-    .photo-frame img { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; border: 3px solid #bfdbfe; flex-shrink: 0; }
+-    .photo-frame .pf-name { font-size: 13px; font-weight: 600; color: #64748b; }
+-    .footer { margin-top: 28px; font-size: 11px; color: #94a3b8; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 12px; }
+-  </style>
+-</head>
+-<body>
+-  <div class="header-bar">
+-    <h2>breakthru.ai Visitor Report</h2>
+-    <span>Confidential</span>
+-  </div>
+-  <h1>${s.name}</h1>
+-  ${s.photo ? `<div class="photo-frame"><img src="${s.photo}" alt="${s.name}" onerror="this.style.display='none'"><span class="pf-name">Visitor Photo</span></div>` : ''}
+-  <h3>Visit on ${fmtD(s.inTime)} · Session ID: ${s.id}</h3>
+-  <table>
+-    <tr><td>Visitor</td><td><strong>${s.name}</strong></td></tr>
+-    <tr><td>Company</td><td>${s.company || '—'}</td></tr>
+-    <tr><td>Purpose</td><td>${s.purpose || '—'}</td></tr>
+-    <tr><td>Host</td><td>${s.host || '—'}</td></tr>
+-    <tr><td>Visitor Type</td><td>${s.visitorType || 'Individual'}</td></tr>
+-    ${s.visitorType === 'Team' ? `
+-    <tr><td>Team Name</td><td>${s.teamName || '—'}</td></tr>
+-    <tr><td>Team Count</td><td>${s.teamCount || 0}</td></tr>
+-    <tr><td>Team Members</td><td>${(s.teamMembers || []).filter(Boolean).join(', ') || '—'}</td></tr>` : ''}
+-    <tr><td>ID Type</td><td>${s.idType || '—'}</td></tr>
+-    <tr><td>RFID Tag</td><td><code>${s.rfid}</code></td></tr>
+-    <tr><td>Check-in</td><td>${fmtT(s.inTime)}, ${fmtD(s.inTime)}</td></tr>
+-    <tr><td>Check-out</td><td>${s.outTime ? fmtT(s.outTime) + ', ' + fmtD(s.outTime) : 'Active'}</td></tr>
+-    <tr><td>Duration</td><td>${dur} minutes</td></tr>
+-    <tr><td>Status</td><td><span class="badge ${s.status === 'completed' ? 'completed' : ''}">${s.status === 'active' ? 'Active' : 'Completed'}</span></td></tr>
+-  </table>
+-  <div class="footer">Generated: ${new Date().toLocaleString('en-IN')} · Breakthru.ai Visitor Management System</div>
+-</body>
+-</html>`;
+-      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+-      const url = URL.createObjectURL(blob);
+-      const a = document.createElement('a');
+-      a.href = url;
+-      a.download = `visit-report-${s.name.replace(/\s+/g, '-').toLowerCase()}-${s.id}.html`;
+-      document.body.appendChild(a);
+-      a.click();
+-      document.body.removeChild(a);
+-      URL.revokeObjectURL(url);
+-      toast('Report downloaded.', 'ok');
++      
++      const { jsPDF } = window.jspdf;
++      const toastId = toast('Generating PDF...', 'ok', 0); // Keep toast visible
++      
++      try {
++        const dur = s.duration ?? Math.round((Date.now() - s.inTime) / 60000);
++        
++        // Create a hidden container for PDF rendering
++        const printWrap = document.createElement('div');
++        printWrap.style.position = 'absolute';
++        printWrap.style.left = '-9999px';
++        printWrap.style.width = '620px';
++        printWrap.style.padding = '40px';
++        printWrap.style.background = 'white';
++        printWrap.style.color = '#1e293b';
++        printWrap.style.fontFamily = 'Arial, sans-serif';
++        
++        printWrap.innerHTML = `
++          <div style="background: #0a1628; color: #fff; padding: 20px; border-radius: 10px; margin-bottom: 30px; display: flex; justify-content: space-between; align-items: center;">
++            <h2 style="margin: 0; font-size: 18px;">breakthru.ai Visitor Report</h2>
++            <span style="font-size: 11px; opacity: .6;">Confidential Document</span>
++          </div>
++          
++          <div style="display: flex; gap: 20px; margin-bottom: 30px; align-items: center;">
++            ${s.photo ? `<img src="${s.photo}" style="width: 100px; height: 100px; border-radius: 50%; object-fit: cover; border: 4px solid #bfdbfe;">` : '<div style="width: 100px; height: 100px; border-radius: 50%; background: #e2e8f0; display: flex; align-items: center; justify-content: center; font-size: 40px; color: #94a3b8;">👤</div>'}
++            <div>
++              <h1 style="margin: 0; font-size: 28px; color: #0f172a;">${s.name}</h1>
++              <p style="margin: 5px 0 0 0; color: #64748b; font-size: 14px;">Visit on ${fmtD(s.inTime)} · Session ID: ${s.id}</p>
++            </div>
++          </div>
++          
++          <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
++            <tbody>
++              ${[
++                ['Visitor', '<strong>' + s.name + '</strong>'],
++                ['Company', s.company || '—'],
++                ['Purpose', s.purpose || '—'],
++                ['Host', s.host || '—'],
++                ['Visitor Type', s.visitorType || 'Individual'],
++                ...(s.visitorType === 'Team' ? [
++                  ['Team Name', s.teamName || '—'],
++                  ['Team Count', s.teamCount || 0],
++                  ['Team Members', (s.teamMembers || []).filter(Boolean).join(', ') || '—']
++                ] : []),
++                ['ID Type', s.idType || '—'],
++                ['RFID Tag', `<code style="background:#f1f5f9; padding:2px 6px; border-radius:4px;">${s.rfid}</code>`],
++                ['Check-in', `${fmtT(s.inTime)}, ${fmtD(s.inTime)}`],
++                ['Check-out', s.outTime ? `${fmtT(s.outTime)}, ${fmtD(s.outTime)}` : '<span style="color:#2563eb">Still Active</span>'],
++                ['Duration', dur + ' minutes'],
++                ['Status', `<span style="color: ${s.status === 'completed' ? '#d97706' : '#16a34a'}; font-weight: bold;">${s.status === 'active' ? 'Active' : 'Completed'}</span>`]
++              ].map(([lbl, val]) => `
++                <tr>
++                  <td style="padding: 12px 8px; border-bottom: 1px solid #e2e8f0; color: #64748b; font-size: 14px; width: 160px; font-weight: 500;">${lbl}</td>
++                  <td style="padding: 12px 8px; border-bottom: 1px solid #e2e8f0; color: #1e293b; font-size: 14px;">${val}</td>
++                </tr>
++              `).join('')}
++            </tbody>
++          </table>
++          
++          <div style="margin-top: 50px; font-size: 12px; color: #94a3b8; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 20px;">
++            Generated: ${new Date().toLocaleString('en-IN')} · Breakthru.ai Visitor Management System
++          </div>
++        `;
++        
++        document.body.appendChild(printWrap);
++        
++        // Wait for image to load if present
++        const img = printWrap.querySelector('img');
++        if (img) await new Promise(res => { if(img.complete) res(); else img.onload = res; img.onerror = res; });
++
++        const canvas = await html2canvas(printWrap, { 
++          scale: 2, 
++          useCORS: true,
++          logging: false,
++          backgroundColor: '#ffffff'
++        });
++        
++        const imgData = canvas.toDataURL('image/jpeg', 1.0);
++        const pdf = new jsPDF('p', 'mm', 'a4');
++        const pdfWidth = pdf.internal.pageSize.getWidth();
++        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
++        
++        pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
++        pdf.save(`visit-report-${s.name.replace(/\s+/g, '-').toLowerCase()}-${s.id}.pdf`);
++        
++        document.body.removeChild(printWrap);
++        toast('PDF Report downloaded.', 'ok');
++      } catch (err) {
++        console.error('[PDF Error]', err);
++        toast('Failed to generate PDF.', 'err');
++      }
+     }
+ 
+     // Report modal (in-UI preview + download option)
+@@ -3147,7 +3177,7 @@
+     </div>
+     <input class="id-input" id="fidnum" type="text"
+       placeholder="${rule.example}" maxlength="${type === 'Aadhaar Card' ? 14 : rule.maxLen}"
+-      value="${displayVal}"
++      value="${displayVal}" data-id_number="${raw}"
+       oninput="onIdInput(this)" onblur="onIdBlur(this)" onfocus="onIdFocus(this)"
+       autocomplete="off"/>
+     ${S.idMasked ? `
+@@ -3230,7 +3260,13 @@
+         S.v.email        = S.v.email || returning.email || '';
+         S.v.idType       = returning.id_type    || returning.idType       || '';
+         S.v.idNumber     = returning.id_number  || returning.idNumber     || '';
+-        S.idValidated    = !!(returning.id_number || returning.idNumber);
++        S.idValidated    = !!S.v.idNumber;
++        if (S.v.idType === 'Aadhaar Card' && S.v.idNumber) {
++          S.v.idNumberRaw = S.v.idNumber.replace(/\s/g, '');
++        }
++        S.idValidated = !!S.v.idNumber;
++        S.idMasked = !!S.v.idNumber;
++
+         S.v.purpose      = returning.purpose    || S.v.purpose            || '';
+         S.v.hostId       = returning.host_id    || returning.hostId       || S.v.hostId || '';
+         S.v.visitorType  = returning.visitor_type || returning.visitorType || S.v.visitorType || 'Individual';
+@@ -3671,6 +3707,13 @@
+             <div class="dr"><div class="dl">Last Host</div><div class="dv">` + (S.returningVisitorDetail.host_name || '—') + `</div></div>
+             <div class="dr"><div class="dl">Last Status</div><div class="dv"><span class="badge badge-blue">` + (S.returningVisitorDetail.status || '—') + `</span></div></div>
+             <div class="dr"><div class="dl">Visitor Type</div><div class="dv">` + (S.returningVisitorDetail.visitor_type || 'Individual') + `</div></div>
++            <div class="dr">
++              <div class="dl">Last ID Used</div>
++              <div class="dv">
++                <span class="id-type-badge" style="font-size:9px;padding:1px 5px">${S.returningVisitorDetail.id_type || '—'}</span>
++                <span style="font-family:var(--mono);font-size:10px;margin-left:4px">${S.returningVisitorDetail.id_number ? maskGeneric(S.returningVisitorDetail.id_number, 4) : '—'}</span>
++              </div>
++            </div>
+             ` + (S.returningVisitorDetail.visitor_type === 'Team' ? '<div class="dr"><div class="dl">Team Name</div><div class="dv">' + (S.returningVisitorDetail.team_name || '—') + '</div></div><div class="dr"><div class="dl">Team Count</div><div class="dv">' + (S.returningVisitorDetail.team_count || 0) + '</div></div>' : '') + `
+           </div>
+ 
+@@ -4120,6 +4163,11 @@
+      async function pAccess() {
+        const h = gh(S.v.hostId);
+        const available = await Store.getAvailableTags();
++       // Sequential Auto-assignment
++       if (!S.rfid && available.length > 0) {
++         S.rfid = available[0].tag;
++         setTimeout(renderPanel, 10);
++       }
+        const selected = S.rfid;
+        const slotOptions = available.length === 0
+         ? `<option value="">⚠ All RFID cards currently in use</option>`
+@@ -4499,6 +4547,10 @@
+     }
+ 
+     function startNewVisitor() {
++      if (S.dbVisitId && S.approvalSent && S.step >= 5 && S.step <= 8) {
++        alert('You are already notified to the host. Please complete your current session or use the menu to manage parallel visitors.');
++        return;
++      }
+       stopCam(); clearCountdown(); clearPoller(); stopFaceCheck();
+       if (S.waitTmr) { clearInterval(S.waitTmr); S.waitTmr = null; }
+       S = mkState(); hideStatus(); render();

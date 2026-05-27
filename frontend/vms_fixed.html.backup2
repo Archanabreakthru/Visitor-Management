@@ -2102,7 +2102,7 @@
       <div class="modal-text" id="coModalText"></div>
       <div class="modal-acts">
         <button class="btn btn-s" style="flex:1" onclick="closeModal('coModal')">Cancel</button>
-        <button class="btn btn-g" style="flex:1" onclick="hamCheckout(pendingCheckoutId)">Confirm Checkout</button>
+        <button class="btn btn-g" style="flex:1" onclick="executeCheckout()">Confirm Checkout</button>
       </div>
     </div>
   </div>
@@ -2673,7 +2673,7 @@
       </div>
       <div class="sess-card-actions" style="margin-top:10px">
         <button class="btn btn-s" onclick="closeModal('coModal');renderHamBody()">Back</button>
-        <button class="btn btn-d" onclick="hamCheckout('${sessionId}')">Checkout ${sess.name}</button>
+        <button class="btn btn-d" onclick="initiateHamCheckout('${sessionId}')">Checkout ${sess.name}</button>
       </div>
     </div>`;
 
@@ -3632,11 +3632,15 @@
           <!-- CHANGE 1: Searchable country code dropdown replaces native select -->
           <div class="phone-group">
             ${ccDropdown}
-            <div class="phone-input-wrap" style="display:flex; flex:1;">
+            <div class="phone-input-wrap" style="position:relative; display:flex; flex:1;">
               <input type="tel" id="fph" placeholder="${COUNTRY_CODES[v.countryCode || 'IN'].length} digits"
                 value="${v.phone}" maxlength="${COUNTRY_CODES[v.countryCode || 'IN'].length}"
                 oninput="S.v.phone=this.value.replace(/[^0-9]/g,'');this.value=S.v.phone;onPhoneLive()"
-                onblur="onPhoneLive()" style="width: 100%;"/>
+                onblur="onPhoneLive()" style="padding-right: 90px; width: 100%;"/>
+              <button class="btn btn-p" id="btnPhoneValidate" onclick="checkPhoneEmail()" 
+                      style="position: absolute; right: 4px; top: 4px; bottom: 4px; padding: 0 14px; font-size: 11px; height: 32px; border-radius: 6px; z-index: 10; display: flex; align-items: center; justify-content: center; gap: 4px;">
+                ${ic(I.search, 11)} Validate
+              </button>
             </div>
           </div>
           <span class="ferr" id="fph_e"></span>
@@ -3649,6 +3653,13 @@
           <span class="ferr" id="fem_e"></span>
         </div>
       </div>
+      ${!S.phoneEmailDone ? `
+        <div style="margin-top:12px">
+          <button class="btn btn-p btn-full" onclick="checkPhoneEmail()">
+            ${ic(I.arrowL, 13)} Validate &amp; Continue to Registration
+          </button>
+        </div>
+      ` : ''}
     </div>`;
 
       // Returned-visitor appended block — pre-rendered clean HTML, no extra details
@@ -3835,9 +3846,6 @@
         if (er) er.textContent = res.ok ? '' : res.error;
         const el = $('fph');
         if (el) el.classList.toggle('err', !res.ok);
-        if (res.ok) {
-          checkPhoneEmail();
-        }
       }
     }
 

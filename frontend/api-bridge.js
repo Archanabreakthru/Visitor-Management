@@ -216,7 +216,7 @@
   };
 
   window.hamCheckout = async function(id) {
-    if (!confirm('Checkout this visitor?')) return;
+    // Confirmation disabled – proceed with checkout
     try {
       const sess = Store.findSession(id);
       if (sess && sess.dbVisitId) {
@@ -226,12 +226,9 @@
       }
       
       Store.checkoutSession(id);
-      if (typeof renderHamBody === 'function') renderHamBody();
-      if (S.sessionId === id) {
-        S.outTime = Date.now();
-        if (S.step === 7 || S.step === 8) goStep(9);
-      }
-      if (typeof toast === 'function') toast('Visitor checked out.', 'ok');
+        if (typeof renderHamBody === 'function') renderHamBody();
+        if (typeof goStep === 'function') goStep(9);
+        closeModal('coModal');
     } catch (err) {
       if (typeof toast === 'function') toast('Failed to checkout on server: ' + err.message, 'err');
     }
