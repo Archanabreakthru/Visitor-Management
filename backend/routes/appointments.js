@@ -40,6 +40,14 @@ router.get('/lookup', async (req, res) => {
 router.post('/', async (req, res) => {
   const { code, visitor_name, company, phone, email, purpose, host_id, scheduled_date } = req.body;
 
+  // Email validation - optional field but must be valid if provided
+  if (email && email.trim() !== '') {
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!emailRegex.test(email.trim())) {
+      return res.status(400).json({ ok: false, error: 'Please enter a valid email address.' });
+    }
+  }
+
   try {
     const { rows } = await db.query(
       `INSERT INTO appointments

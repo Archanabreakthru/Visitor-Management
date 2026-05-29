@@ -181,18 +181,24 @@ router.post('/', async (req, res) => {
     countryCode, country_code
   } = req.body;
 
+// Email validation - optional field but must be valid if provided
+  if (email && email.trim() !== '') {
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!emailRegex.test(email.trim())) {
+      return res.status(400).json({ ok: false, error: 'Please enter a valid email address.' });
+    }
+  }
+
   let cc = countryCode || country_code;
   if (cc && phone && !phone.startsWith('+')) {
     phone = `${cc} ${phone}`;
   }
 
   if (!name || !phone || !purpose || !host_id) {
-      return res.status(400).json({ ok: false, error: 'Name, phone, purpose, and host are required' });
-    }
+    return res.status(400).json({ ok: false, error: 'Name, phone, purpose, and host are required' });
+  }
 
-    // Duplicate active session check disabled for now (allows multiple active visits)
-// const { rows: activeVisits } = await db.query(
-//   `SELECT id FROM visits WHERE phone = $1 AND status = 'active'`,
+  // Duplicate active session check disabled for now (allows multiple active visits)
 //   [phone]
 // );
 // if (activeVisits.length > 0) {

@@ -827,7 +827,7 @@
       margin: 14px 0
     }
 
-.badge {
+    .badge {
       display: inline-flex;
       align-items: center;
       gap: 3px;
@@ -844,33 +844,33 @@
     }
 
     .stepper-btn {
-       width: 28px;
-       height: 28px;
-       border: 1px solid var(--border);
-       border-radius: 6px;
-       background: var(--bg);
-       font-size: 14px;
-       font-weight: 600;
-       cursor: pointer;
-       display: flex;
-       align-items: center;
-       justify-content: center;
-     }
+      width: 28px;
+      height: 28px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
 
-     .stepper-btn:hover {
-       background: var(--border);
-     }
+    .stepper-btn:hover {
+      background: var(--border);
+    }
 
-     /* Hide number input spinner arrows */
-     input[type="number"]::-webkit-inner-spin-button,
-     input[type="number"]::-webkit-outer-spin-button {
-       -webkit-appearance: none;
-       margin: 0;
-     }
+    /* Hide number input spinner arrows */
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
 
-     input[type="number"] {
-       -moz-appearance: textfield;
-     }
+    input[type="number"] {
+      -moz-appearance: textfield;
+    }
 
     .badge-blue {
       background: var(--blue-t);
@@ -2097,13 +2097,13 @@
   <div class="ham-panel" id="hamPanel">
     <div class="ham-hd">
       <div class="ham-title">Sessions</div>
-        <button class="ham-close" onclick="closeHam()">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-            stroke-linecap="round" stroke-linejoin="round">
-            <line x1="18" y1="6" x2="6" y2="18" />
-            <line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
-        </button>
+      <button class="ham-close" onclick="closeHam()">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+          stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
     </div>
     <div class="ham-new-visitor">
       <button class="btn btn-p btn-full" style="font-size:12px;padding:9px 14px" onclick="startNewVisitorFromHam()">
@@ -3051,7 +3051,7 @@
       const ctx = c.getContext('2d');
       ctx.drawImage(v, 0, 0);
 
-// 2 Validate: ask the analysis helper to confirm a visible human face
+      // 2 Validate: ask the analysis helper to confirm a visible human face
       const faceResult = checkCapture(c);
       if (faceResult.status !== 'ok') {
         toast(faceResult.msg, 'err');
@@ -3124,7 +3124,7 @@
     function onIdInput(el) {
       const type = S.v.idType, rule = ID_RULES[type];
       if (!rule) return;
-      
+
       let raw = extractRawId(el.value);
       if (type === 'Aadhaar Card') {
         raw = raw.replace(/\D/g, ''); // Instantly filter out any non-digit characters!
@@ -3274,63 +3274,63 @@
       renderPanel();
     }
 
-    // ════════════════════════════════════════════════════════
-    //  FIX 4: PROGRESSIVE DISCLOSURE — validate phone+email → reveal rest
-    // ════════════════════════════════════════════════════════
-    async function checkPhoneEmail() {
-      // Sync from DOM
-      const phEl = $('fph'), emEl = $('femail');
-      if (phEl) S.v.phone = phEl.value.replace(/\D/g, '');
-      if (emEl) S.v.email = emEl.value.trim();
+// ════════════════════════════════════════════════════════
+     //  FIX 4: PROGRESSIVE DISCLOSURE — validate phone+email → reveal rest
+     // ════════════════════════════════════════════════════════
+     async function checkPhoneEmail() {
+       // Sync from DOM
+       const phEl = $('fph'), emEl = $('femail');
+       if (phEl) S.v.phone = phEl.value.replace(/\D/g, '');
+       if (emEl) S.v.email = emEl.value.trim();
 
-      const phResult = validatePhone(S.v.phone, S.v.countryCode);
-      const emOk = !S.v.email || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(S.v.email);
+       const phResult = validatePhone(S.v.phone, S.v.countryCode);
+       const emOk = !S.v.email || /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(S.v.email);
 
-      const phEr = $('fph_e');
-      const emEr = $('fem_e');
+       const phEr = $('fph_e');
+       const emEr = $('fem_e');
 
-      if (!phResult.ok) {
-        if (phEl) phEl.classList.add('err');
-        if (phEr) phEr.textContent = phResult.error;
-        return;
-      }
-      if (phEl) phEl.classList.remove('err');
-      if (phEr) phEr.textContent = '';
+       if (!phResult.ok) {
+         if (phEl) phEl.classList.add('err');
+         if (phEr) phEr.textContent = phResult.error;
+         return;
+       }
+       if (phEl) phEl.classList.remove('err');
+       if (phEr) phEr.textContent = '';
 
-      if (!emOk) {
-        if (emEl) emEl.classList.add('err');
-        if (emEr) emEr.textContent = 'Invalid email format';
-        return;
-      }
-      if (emEl) emEl.classList.remove('err');
-      if (emEr) emEr.textContent = '';
+       if (!emOk) {
+         if (emEl) emEl.classList.add('err');
+         if (emEr) emEr.textContent = 'Please enter a valid email address.';
+         return;
+       }
+       if (emEl) emEl.classList.remove('err');
+       if (emEr) emEr.textContent = '';
 
-      // ── Returning-visitor auto-fill ────────────────────────────
-      // Priority: DB-backed API → in-session history → nothing
-      let dbVisitor = null;
-      try {
-        if (typeof window.apiFetchVisitorByPhone === 'function') {
-          dbVisitor = await window.apiFetchVisitorByPhone(S.v.phone, S.v.countryCode);
-        }
-      } catch (_e) { /* fail silently — keep inline history fallback */ }
+       // ── Returning-visitor auto-fill ────────────────────────────
+       // Priority: DB-backed API → in-session history → nothing
+       let dbVisitor = null;
+       try {
+         if (typeof window.apiFetchVisitorByPhone === 'function') {
+           dbVisitor = await window.apiFetchVisitorByPhone(S.v.phone, S.v.countryCode);
+         }
+       } catch (_e) { /* fail silently — keep inline history fallback */ }
 
-      const returning = dbVisitor
-        || VISITOR_HISTORY.find(v => v.phone === S.v.phone && v.countryCode === (S.v.countryCode || 'IN'));
+       const returning = dbVisitor
+         || VISITOR_HISTORY.find(v => v.phone === S.v.phone && v.countryCode === (S.v.countryCode || 'IN'));
 
-      if (returning) {
-        S.v.name         = returning.name;
-        S.v.company      = returning.company;
-        S.v.email        = S.v.email || returning.email || '';
-        S.v.idType       = returning.id_type    || returning.idType       || '';
-        S.v.idNumber     = returning.id_number  || returning.idNumber     || '';
-        S.idValidated    = !!(returning.id_number || returning.idNumber);
-        S.v.purpose      = returning.purpose    || S.v.purpose            || '';
-        S.v.hostId       = returning.host_id    || returning.hostId       || S.v.hostId || '';
-        S.v.visitorType  = returning.visitor_type || returning.visitorType || S.v.visitorType || 'Individual';
-        S.v.teamName     = returning.team_name  || returning.teamName     || S.v.teamName || '';
-        S.v.teamCount    = returning.team_count || returning.teamCount    || S.v.teamCount || 2;
-        S.v.teamMembers  = returning.team_members || returning.teamMembers || S.v.teamMembers || [];
-        S.photo          = S.photo || returning.photo_b64 || '';
+       if (returning) {
+         S.v.name = returning.name;
+         S.v.company = returning.company;
+         S.v.email = S.v.email || returning.email || '';
+         S.v.idType = returning.id_type || returning.idType || '';
+         S.v.idNumber = returning.id_number || returning.idNumber || '';
+         S.idValidated = !!(returning.id_number || returning.idNumber);
+        S.v.purpose = returning.purpose || S.v.purpose || '';
+        S.v.hostId = returning.host_id || returning.hostId || S.v.hostId || '';
+        S.v.visitorType = returning.visitor_type || returning.visitorType || S.v.visitorType || 'Individual';
+        S.v.teamName = returning.team_name || returning.teamName || S.v.teamName || '';
+        S.v.teamCount = returning.team_count || returning.teamCount || S.v.teamCount || 2;
+        S.v.teamMembers = returning.team_members || returning.teamMembers || S.v.teamMembers || [];
+        S.photo = S.photo || returning.photo_b64 || '';
         S.returningVisitor = returning.name;
         // Store full DB record for appended UI fields
         if (dbVisitor) {
@@ -3346,8 +3346,23 @@
         S.returningVisitor = null;
         S.returningVisitorDetail = null;
       }
-      S.phoneEmailDone = true;
+S.phoneEmailDone = true;
       renderPanel();
+    }
+
+    // Email live validation
+    function validateEmailLive() {
+      const emEl = $('femail');
+      const emEr = $('fem_e');
+      const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+
+      if (!S.v.email || emailRegex.test(S.v.email)) {
+        if (emEl) emEl.classList.remove('err');
+        if (emEr) emEr.textContent = '';
+      } else {
+        if (emEl) emEl.classList.add('err');
+        if (emEr) emEr.textContent = 'Please enter a valid email address.';
+      }
     }
 
     // FIX 7: Autofill suggestions on name change
@@ -3486,6 +3501,17 @@
       if (S.step === 2 && n !== 2) stopCam();
       if (S.waitTmr) { clearInterval(S.waitTmr); S.waitTmr = null; }
       if (S.step === 5 && n !== 5) clearPoller();
+      
+      // Block premature navigation to Awaiting (step 5) and Access/RFID (step 6)
+      // Step 5 should only be reached via Notification step (step 4) flow
+      if (n === 5 && !S.approvalSent && S.step !== 4) {
+        return; // Prevent accessing Awaiting directly without approval
+      }
+      // Step 6 should only be reached after approval decision
+      if (n === 6 && (S.approved !== true && S.approved !== false)) {
+        return; // Prevent accessing Access/RFID without approval decision
+      }
+      
       S.step = n;
       render();
       if (n === 5 && !S.approvalSent) {
@@ -3675,7 +3701,7 @@
       </div>
     </div>`;
 
-// Camera column (always shown)
+      // Camera column (always shown)
       const cameraCol = `
     <div>
       <label style="display:flex;align-items:center;gap:4px;margin-bottom:7px">
@@ -3735,12 +3761,12 @@
           <span class="ferr" id="fph_e"></span>
           <span class="fhint" id="fph_hint">Format: ${COUNTRY_CODES[v.countryCode || 'IN'].name} — starts with ${COUNTRY_CODES[v.countryCode || 'IN'].pattern.toString().slice(1, -1)}</span>
         </div>
-        <div class="field full">
-          <label>Email <span style="font-weight:400;color:var(--faint)">(optional)</span></label>
-          <input type="email" id="femail" placeholder="you@company.com" value="${v.email}"
-            oninput="S.v.email=this.value"/>
-          <span class="ferr" id="fem_e"></span>
-        </div>
+<div class="field full">
+           <label>Email <span style="font-weight:400;color:var(--faint)">(optional)</span></label>
+           <input type="email" id="femail" placeholder="you@company.com" value="${v.email}"
+             oninput="S.v.email=this.value; validateEmailLive()"/>
+           <span class="ferr" id="fem_e"></span>
+         </div>
       </div>
     </div>`;
 
@@ -3845,7 +3871,7 @@
           <div class="autofill-dropdown" id="nameSuggestions" style="display:none"></div>
         </div>
         <div class="field full">
-          <label>Company / Organization <span style="font-weight:400;color:var(--faint)">(optional)</span></label>
+          <label>Company / Organization <span class="req">>*</span></label>
           <input type="text" id="fco" placeholder="e.g. Acme Corp" value="${v.company}"
             oninput="S.v.company=this.value"/>
         </div>
@@ -3916,8 +3942,8 @@
       ${S.phoneEmailDone && S.returningVisitorDetail
           ? `<button class="btn btn-p" style="flex:1" onclick="submitReg()">${ic(I.check, 12, 2.5)} Returning Visitor — Continue → Agreement</button>`
           : S.phoneEmailDone
-          ? `<button class="btn btn-p" style="flex:1" onclick="submitReg()">Continue → Agreement</button>`
-          : `<button class="btn btn-p" style="flex:1" onclick="checkPhoneEmail()">${ic(I.arrowL, 13)} Validate &amp; Continue to Registration</button>`}
+            ? `<button class="btn btn-p" style="flex:1" onclick="submitReg()">Continue → Agreement</button>`
+            : `<button class="btn btn-p" style="flex:1" onclick="checkPhoneEmail()">${ic(I.arrowL, 13)} Validate &amp; Continue to Registration</button>`}
       </div>
   </div>`;
     }
@@ -4213,12 +4239,12 @@
   </div>`;
     }
 
-     // STEP 6b — Access + RFID
-     async function pAccess() {
-       const h = gh(S.v.hostId);
-       const available = await Store.getAvailableTags();
-       const selected = S.rfid;
-       const slotOptions = available.length === 0
+    // STEP 6b — Access + RFID
+    async function pAccess() {
+      const h = gh(S.v.hostId);
+      const available = await Store.getAvailableTags();
+      const selected = S.rfid;
+      const slotOptions = available.length === 0
         ? `<option value="">⚠ All RFID cards currently in use</option>`
         : [`<option value="">Select a card slot…</option>`, ...available.map(t => `<option value="${t.tag}" ${selected === t.tag ? 'selected' : ''}>${t.label}</option>`)].join('');
       return `<div class="card" style="border-color:var(--green-b)">
@@ -4630,21 +4656,21 @@
     // ════════════════════════════════════════════════════════
     //  RENDER ENGINE
     // ════════════════════════════════════════════════════════
-     function renderPanel() {
-       const fns = panels();
-       PanelRender();
-       if (S.step === 2 && !S.photo && !S.camStream) setTimeout(() => startCam('regVid'), 150);
-       if (S.step === 3) {
-         setTimeout(() => {
-           const b = $('agrBox');
-           if (b) b.addEventListener('scroll', onAgrScroll, { passive: true });
-         }, 100);
-       }
-     }
-     async function PanelRender() {
-       const fns = panels();
-       $('panel').innerHTML = await (fns[S.step] || (() => ''))();
-     }
+    function renderPanel() {
+      const fns = panels();
+      PanelRender();
+      if (S.step === 2 && !S.photo && !S.camStream) setTimeout(() => startCam('regVid'), 150);
+      if (S.step === 3) {
+        setTimeout(() => {
+          const b = $('agrBox');
+          if (b) b.addEventListener('scroll', onAgrScroll, { passive: true });
+        }, 100);
+      }
+    }
+    async function PanelRender() {
+      const fns = panels();
+      $('panel').innerHTML = await (fns[S.step] || (() => ''))();
+    }
 
     function render() { renderTracker(); updateTopbar(); renderPanel(); }
     render();
