@@ -2601,7 +2601,6 @@
       print: `<polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>`,
       arrowL: `<polyline points="15 18 9 12 15 6"/>`,
       id: `<rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/>`,
-      search: `<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>`,
       dl: `<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>`,
     };
     const backBtn = step => `<button class="btn-icon" onclick="goStep(${step})" title="Back">${ic(I.arrowL, 15, 2.5)}</button>`;
@@ -2663,7 +2662,6 @@
         <div class="sess-card-meta">🏷 ${s.rfid} · 🕒 In: ${fmtT(s.inTime)}</div>
         <div style="margin-top:5px"><span class="badge badge-green">${ic(I.check, 9, 2.5)} Active</span></div>
         <div class="sess-card-actions">
-          <button class="btn btn-s" onclick="event.stopPropagation();viewReport('${s.id}')">Report</button>
           <button class="btn btn-d" onclick="event.stopPropagation();initiateHamCheckout('${s.id}')">Checkout</button>
         </div>
       </div>`;
@@ -2682,8 +2680,7 @@
         <div class="sess-card-meta">Out: ${fmtT(s.outTime)} · ${s.duration} min · ${s.rfid}</div>
         <div style="margin-top:4px"><span class="badge badge-amber">Completed</span></div>
         <div class="sess-card-actions">
-          <button class="btn btn-s" onclick="event.stopPropagation();viewReport('${s.id}')">Report</button>
-          <button class="btn btn-p" onclick="event.stopPropagation();downloadReport('${s.id}')">${ic(I.dl, 11)} Download</button>
+          <button class="btn btn-s" onclick="event.stopPropagation();downloadReport('${s.id}')">Report</button>
         </div>
       </div>`;
         });
@@ -3274,56 +3271,56 @@
       renderPanel();
     }
 
-// ════════════════════════════════════════════════════════
-     //  FIX 4: PROGRESSIVE DISCLOSURE — validate phone+email → reveal rest
-     // ════════════════════════════════════════════════════════
-     async function checkPhoneEmail() {
-       // Sync from DOM
-       const phEl = $('fph'), emEl = $('femail');
-       if (phEl) S.v.phone = phEl.value.replace(/\D/g, '');
-       if (emEl) S.v.email = emEl.value.trim();
+    // ════════════════════════════════════════════════════════
+    //  FIX 4: PROGRESSIVE DISCLOSURE — validate phone+email → reveal rest
+    // ════════════════════════════════════════════════════════
+    async function checkPhoneEmail() {
+      // Sync from DOM
+      const phEl = $('fph'), emEl = $('femail');
+      if (phEl) S.v.phone = phEl.value.replace(/\D/g, '');
+      if (emEl) S.v.email = emEl.value.trim();
 
-       const phResult = validatePhone(S.v.phone, S.v.countryCode);
-       const emOk = !S.v.email || /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(S.v.email);
+      const phResult = validatePhone(S.v.phone, S.v.countryCode);
+      const emOk = !S.v.email || /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(S.v.email);
 
-       const phEr = $('fph_e');
-       const emEr = $('fem_e');
+      const phEr = $('fph_e');
+      const emEr = $('fem_e');
 
-       if (!phResult.ok) {
-         if (phEl) phEl.classList.add('err');
-         if (phEr) phEr.textContent = phResult.error;
-         return;
-       }
-       if (phEl) phEl.classList.remove('err');
-       if (phEr) phEr.textContent = '';
+      if (!phResult.ok) {
+        if (phEl) phEl.classList.add('err');
+        if (phEr) phEr.textContent = phResult.error;
+        return;
+      }
+      if (phEl) phEl.classList.remove('err');
+      if (phEr) phEr.textContent = '';
 
-       if (!emOk) {
-         if (emEl) emEl.classList.add('err');
-         if (emEr) emEr.textContent = 'Please enter a valid email address.';
-         return;
-       }
-       if (emEl) emEl.classList.remove('err');
-       if (emEr) emEr.textContent = '';
+      if (!emOk) {
+        if (emEl) emEl.classList.add('err');
+        if (emEr) emEr.textContent = 'Please enter a valid email address.';
+        return;
+      }
+      if (emEl) emEl.classList.remove('err');
+      if (emEr) emEr.textContent = '';
 
-       // ── Returning-visitor auto-fill ────────────────────────────
-       // Priority: DB-backed API → in-session history → nothing
-       let dbVisitor = null;
-       try {
-         if (typeof window.apiFetchVisitorByPhone === 'function') {
-           dbVisitor = await window.apiFetchVisitorByPhone(S.v.phone, S.v.countryCode);
-         }
-       } catch (_e) { /* fail silently — keep inline history fallback */ }
+      // ── Returning-visitor auto-fill ────────────────────────────
+      // Priority: DB-backed API → in-session history → nothing
+      let dbVisitor = null;
+      try {
+        if (typeof window.apiFetchVisitorByPhone === 'function') {
+          dbVisitor = await window.apiFetchVisitorByPhone(S.v.phone, S.v.countryCode);
+        }
+      } catch (_e) { /* fail silently — keep inline history fallback */ }
 
-       const returning = dbVisitor
-         || VISITOR_HISTORY.find(v => v.phone === S.v.phone && v.countryCode === (S.v.countryCode || 'IN'));
+      const returning = dbVisitor
+        || VISITOR_HISTORY.find(v => v.phone === S.v.phone && v.countryCode === (S.v.countryCode || 'IN'));
 
-       if (returning) {
-         S.v.name = returning.name;
-         S.v.company = returning.company;
-         S.v.email = S.v.email || returning.email || '';
-         S.v.idType = returning.id_type || returning.idType || '';
-         S.v.idNumber = returning.id_number || returning.idNumber || '';
-         S.idValidated = !!(returning.id_number || returning.idNumber);
+      if (returning) {
+        S.v.name = returning.name;
+        S.v.company = returning.company;
+        S.v.email = S.v.email || returning.email || '';
+        S.v.idType = returning.id_type || returning.idType || '';
+        S.v.idNumber = returning.id_number || returning.idNumber || '';
+        S.idValidated = !!(returning.id_number || returning.idNumber);
         S.v.purpose = returning.purpose || S.v.purpose || '';
         S.v.hostId = returning.host_id || returning.hostId || S.v.hostId || '';
         S.v.visitorType = returning.visitor_type || returning.visitorType || S.v.visitorType || 'Individual';
@@ -3346,7 +3343,7 @@
         S.returningVisitor = null;
         S.returningVisitorDetail = null;
       }
-S.phoneEmailDone = true;
+      S.phoneEmailDone = true;
       renderPanel();
     }
 
@@ -3501,7 +3498,7 @@ S.phoneEmailDone = true;
       if (S.step === 2 && n !== 2) stopCam();
       if (S.waitTmr) { clearInterval(S.waitTmr); S.waitTmr = null; }
       if (S.step === 5 && n !== 5) clearPoller();
-      
+
       // Block premature navigation to Awaiting (step 5) and Access/RFID (step 6)
       // Step 5 should only be reached via Notification step (step 4) flow
       if (n === 5 && !S.approvalSent && S.step !== 4) {
@@ -3511,7 +3508,7 @@ S.phoneEmailDone = true;
       if (n === 6 && (S.approved !== true && S.approved !== false)) {
         return; // Prevent accessing Access/RFID without approval decision
       }
-      
+
       S.step = n;
       render();
       if (n === 5 && !S.approvalSent) {
@@ -4335,7 +4332,14 @@ S.phoneEmailDone = true;
       const iframe = document.createElement('iframe');
       iframe.style.display = 'none';
       iframe.src = url;
-      iframe.onload = () => { iframe.contentWindow.print(); };
+      
+      const origTitle = document.title;
+      document.title = `${S.v.name} - ${fmtD(Date.now())}`;
+      
+      iframe.onload = () => { 
+        iframe.contentWindow.print(); 
+        setTimeout(() => { document.title = origTitle; }, 2000);
+      };
       document.body.appendChild(iframe);
       toast('Print dialog opened.', 'ok');
     }
@@ -4419,12 +4423,21 @@ S.phoneEmailDone = true;
 
     // STEP 9 — Complete
     function pComplete() {
-      const h = gh(S.v.hostId);
-      const sess = Store.findSession(S.sessionId);
-      const dur = sess ? sess.duration : (S.outTime && S.inTime ? Math.round((S.outTime - S.inTime) / 60000) : 0);
-      const inT = S.inTime ? fmtT(S.inTime) : '—';
-      const outT = S.outTime ? fmtT(S.outTime) : '—';
-      const effectivePurpose = S.v.purpose === 'Other' ? (S.v.purposeCustom || 'Other') : S.v.purpose;
+      const sess = Store.findSession(S.lastCompletedSessionId || S.sessionId) || {};
+      const h = sess.host || (gh(S.v.hostId) ? gh(S.v.hostId).name : '—');
+      const dur = sess.duration ?? (S.outTime && S.inTime ? Math.round((S.outTime - S.inTime) / 60000) : 0);
+      const inT = sess.inTime ? fmtT(sess.inTime) : (S.inTime ? fmtT(S.inTime) : '—');
+      const outT = sess.outTime ? fmtT(sess.outTime) : (S.outTime ? fmtT(S.outTime) : '—');
+      const purpose = sess.purpose || (S.v.purpose === 'Other' ? (S.v.purposeCustom || 'Other') : S.v.purpose);
+      const name = sess.name || S.v.name || '—';
+      const company = sess.company || S.v.company || '—';
+      const photo = sess.photo || S.photo;
+      const rfid = sess.rfid || S.rfid || '—';
+      const idType = sess.idType || S.v.idType || '—';
+      const isTeam = sess.visitorType === 'Team' || S.v.visitorType === 'Team';
+      const teamName = sess.teamName || S.v.teamName || '—';
+      const teamCount = sess.teamCount || S.v.teamCount || 0;
+      const downloadId = sess.id || S.sessionId || S.lastCompletedSessionId;
       return `<div class="card" style="border-color:var(--green-b)">
     <div class="card-hd" style="background:var(--green-t);border-bottom-color:var(--green-b);text-align:center;padding:24px">
       <div class="success-icon">${ic(I.star, 26, 1.5)}</div>
@@ -4433,10 +4446,10 @@ S.phoneEmailDone = true;
     </div>
     <div class="card-body">
       <div style="display:flex;align-items:center;gap:11px;margin-bottom:14px;padding:11px;background:var(--bg);border-radius:var(--r-sm)">
-        ${S.photo ? `<img src="${S.photo}" style="width:40px;height:40px;border-radius:50%;object-fit:cover;flex-shrink:0">` : `<div class="avatar" style="width:40px;height:40px;font-size:13px;flex-shrink:0">${initials(S.v.name)}</div>`}
+        ${photo ? `<img src="${photo}" style="width:40px;height:40px;border-radius:50%;object-fit:cover;flex-shrink:0">` : `<div class="avatar" style="width:40px;height:40px;font-size:13px;flex-shrink:0">${initials(name)}</div>`}
         <div style="flex:1">
-          <div style="font-size:13.5px;font-weight:700">${S.v.name}</div>
-          <div style="font-size:11px;color:var(--muted)">${S.v.company || '—'} · ${effectivePurpose || '—'}</div>
+          <div style="font-size:13.5px;font-weight:700">${name}</div>
+          <div style="font-size:11px;color:var(--muted)">${company} · ${purpose}</div>
         </div>
         <span class="badge badge-green">${ic(I.check, 9, 2.5)} Done</span>
       </div>
@@ -4444,21 +4457,20 @@ S.phoneEmailDone = true;
         <div class="rg-card"><div class="rg-lbl">Check-in</div><div class="rg-val mono">${inT}</div></div>
         <div class="rg-card"><div class="rg-lbl">Check-out</div><div class="rg-val mono">${outT}</div></div>
         <div class="rg-card"><div class="rg-lbl">Duration</div><div class="rg-val">${dur} min</div></div>
-        <div class="rg-card"><div class="rg-lbl">RFID Card</div><div class="rg-val mono" style="font-size:10px">${S.rfid || '—'}</div></div>
+        <div class="rg-card"><div class="rg-lbl">RFID Card</div><div class="rg-val mono" style="font-size:10px">${rfid}</div></div>
       </div>
       <div class="data-box">
-        <div class="dr"><div class="dl">Host</div><div class="dv">${h ? h.name : '—'}</div></div>
-        ${S.v.visitorType === 'Team' ? `
-          <div class="dr"><div class="dl">Visitor Type</div><div class="dv">${S.v.visitorType}</div></div>
-          <div class="dr"><div class="dl">Team Name</div><div class="dv">${S.v.teamName || '—'}</div></div>
-          <div class="dr"><div class="dl">Team Count</div><div class="dv">${S.v.teamCount || 0}</div></div>` : ''}
-        <div class="dr"><div class="dl">ID Type</div><div class="dv">${S.v.idType || '—'}</div></div>
+        <div class="dr"><div class="dl">Host</div><div class="dv">${h}</div></div>
+        ${isTeam ? `
+          <div class="dr"><div class="dl">Visitor Type</div><div class="dv">Team</div></div>
+          <div class="dr"><div class="dl">Team Name</div><div class="dv">${teamName}</div></div>
+          <div class="dr"><div class="dl">Team Count</div><div class="dv">${teamCount}</div></div>` : ''}
+        <div class="dr"><div class="dl">ID Type</div><div class="dv">${idType}</div></div>
         <div class="dr"><div class="dl">Agreement</div><div class="dv"><span class="badge badge-green">${ic(I.check, 9)} Signed</span></div></div>
       </div>
     </div>
     <div class="card-ft">
-      <!-- FIX 6: Real download button -->
-      <button class="btn btn-s" onclick="${S.sessionId ? `downloadReport('${S.sessionId}')` : ''}" ${!S.sessionId ? 'disabled' : ''}>
+      <button class="btn btn-s" onclick="${downloadId ? `downloadReport('${downloadId}')` : ''}" ${!downloadId ? 'disabled' : ''}>
         ${ic(I.dl, 13)} Download Report
       </button>
       <button class="btn btn-p" style="flex:1" onclick="doReset()">
@@ -4622,7 +4634,7 @@ S.phoneEmailDone = true;
     }
 
     function startNewVisitor() {
-      if (S.approvalSent && (S.step === 5 || S.step === 6 || S.step === 7)) {
+      if (S.approvalSent && (S.step === 6)) {
         toast('You are already notified to the host.', 'err');
         return;
       }
@@ -4632,7 +4644,7 @@ S.phoneEmailDone = true;
       toast('New visitor session started.', 'ok');
     }
     function startNewVisitorFromHam() {
-      if (S.approvalSent && (S.step === 5 || S.step === 6 || S.step === 7)) {
+      if (S.approvalSent && (S.step === 6)) {
         toast('You are already notified to the host.', 'err');
         return;
       }

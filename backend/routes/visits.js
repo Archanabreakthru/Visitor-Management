@@ -1,3 +1,4 @@
+const puppeteer = require('puppeteer');
 const express = require('express');
 const router = express.Router();
 const db = require('../config/db');
@@ -416,7 +417,7 @@ router.post('/:id/activate', async (req, res) => {
 
     // 2. Fetch all RFID cards to find the smallest available card
     const { rows: dbRows } = await client.query(
-      'SELECT tag, available, status, assigned_to_visit FROM rfid_cards WHERE tag = ANY($1::text[]) FOR UPDATE',
+      'SELECT tag, available, assigned_to_visit FROM rfid_cards WHERE tag = ANY($1::text[]) FOR UPDATE',
       [CANONICAL_TAGS]
     );
 
@@ -429,8 +430,8 @@ router.post('/:id/activate', async (req, res) => {
       const dbRow = dbMap[tag];
       // Card is available if:
       // - It does not exist in DB (missing/deleted)
-      // - OR it is marked as available in DB (status = 'AVAILABLE' or available = true)
-      if (!dbRow || dbRow.status === 'AVAILABLE' || dbRow.available === true) {
+      // - OR it is marked as available in DB (available = true)
+      if (!dbRow || dbRow.available === true) {
         assignedTag = tag;
         break;
       }
@@ -448,15 +449,15 @@ router.post('/:id/activate', async (req, res) => {
     if (!dbRow) {
       // Re-create missing tag
       await client.query(
-        `INSERT INTO rfid_cards (tag, label, available, status, assigned_to_visit, assigned_to_name)
-         VALUES ($1, $2, FALSE, 'ACTIVE', $3, $4)`,
+        `INSERT INTO rfid_cards (tag, label, available, assigned_to_visit, assigned_to_name)
+         VALUES ($1, $2, FALSE, $3, $4)`,
         [assignedTag, `Visitor ${parseInt(assignedTag.split('-')[1], 10)}`, id, visitorName]
       );
     } else {
       // Update existing tag
       await client.query(
         `UPDATE rfid_cards
-         SET available=FALSE, status='ACTIVE', assigned_to_visit=$1, assigned_to_name=$2
+         SET available=FALSE, assigned_to_visit=$1, assigned_to_name=$2
          WHERE tag=$3`,
         [id, visitorName, assignedTag]
       );
@@ -506,7 +507,7 @@ router.post('/:id/checkout', async (req, res) => {
     if (visit.rfid_tag) {
       await db.query(
         `UPDATE rfid_cards
-         SET available=TRUE, status='AVAILABLE', assigned_to_visit=NULL, assigned_to_name=NULL
+         SET available=TRUE, assigned_to_visit=NULL, assigned_to_name=NULL
          WHERE tag=$1`,
         [visit.rfid_tag]
       );
@@ -700,7 +701,7 @@ router.get('/:id/pdf', async (req, res) => {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${sanitizedName}.pdf"`);
 
-    const pdfBuffer = generateMinimalPDF(visit);
+    const pdfBuffer = await generatePuppeteerPDF(visit);
     res.send(pdfBuffer);
   } catch (err) {
     console.error('[PDF Download Error]', err);
@@ -708,72 +709,114 @@ router.get('/:id/pdf', async (req, res) => {
   }
 });
 
-function generateMinimalPDF(visit) {
-  let pdf = "%PDF-1.4\n";
-  const objects = [];
+
+async function generatePuppeteerPDF(visit) {
+  const browser = await puppeteer.launch({
+    headless: 'new',
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  });
+  const page = await browser.newPage();
   
-  function addObject(content) {
-    objects.push(content);
-    return objects.length;
+  const inT = visit.in_time ? new Date(visit.in_time).toLocaleString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) : '—';
+  const outT = visit.out_time ? new Date(visit.out_time).toLocaleString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) : '—';
+  let dur = '0';
+  if (visit.in_time && visit.out_time) {
+    dur = Math.round((new Date(visit.out_time) - new Date(visit.in_time)) / 60000);
   }
   
-  addObject("<< /Type /Catalog /Pages 2 0 R >>");
-  addObject("<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
+  const h = visit.host_name || '—';
+  const name = visit.name || '—';
+  const company = visit.company || '—';
+  const purpose = visit.purpose || '—';
+  const photo = visit.photo_b64 || '';
+  const rfid = visit.rfid_tag || '—';
+  const idType = visit.id_type || '—';
+  const isTeam = visit.visitor_type === 'Team';
+  const teamName = visit.team_name || '—';
+  const teamCount = visit.team_count || 0;
   
-  const lines = [
-    `breakthru.ai Visitor Report`,
-    `--------------------------------`,
-    `Visitor Name: ${visit.name}`,
-    `Company: ${visit.company || '—'}`,
-    `Purpose: ${visit.purpose || '—'}`,
-    `Host: ${visit.host_name || '—'}`,
-    `Check-in: ${visit.in_time ? new Date(visit.in_time).toLocaleString('en-IN') : '—'}`,
-    `Check-out: ${visit.out_time ? new Date(visit.out_time).toLocaleString('en-IN') : '—'}`,
-    `Status: ${visit.status || '—'}`
-  ];
+  function initials(n) {
+    if(!n || n === '—') return '';
+    return n.split(' ').map(s=>s[0]).join('').substring(0,2).toUpperCase();
+  }
   
-  let streamContent = "BT\n/F1 18 Tf\n50 750 Td\n";
-  for (const line of lines) {
-    const escaped = line.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
-    if (line.includes('Visitor Report')) {
-      streamContent += `(${escaped}) Tj\n/F1 12 Tf\n0 -30 Td\n`;
-    } else {
-      streamContent += `(${escaped}) Tj\n0 -20 Td\n`;
+  const iconCheck = `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+  const iconStar = `<svg viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>`;
+  
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap');
+    :root {
+      --navy: #0A1628; --blue: #2563EB; --blue-t: #EFF4FF; --blue-b: #BFDBFE;
+      --green: #16A34A; --green-t: #F0FDF4; --green-b: #BBF7D0;
+      --bg: #F1F5FB; --card: #FFFFFF; --text: #0F172A; --text-m: #334155; --muted: #64748B;
+      --border: #E2E8F0; --r-sm: 8px;
+      --font: 'Outfit', sans-serif; --mono: 'Space Mono', monospace;
     }
-  }
-  streamContent += "ET";
+    body { font-family: var(--font); color: var(--text); padding: 40px; background: #fff; }
+    .card { background: var(--card); border: 1px solid var(--green-b); border-radius: 12px; overflow: hidden; }
+    .card-hd { background: var(--green-t); border-bottom: 1px solid var(--green-b); text-align: center; padding: 24px; }
+    .success-icon { display: inline-flex; align-items: center; justify-content: center; width: 56px; height: 56px; background: #fff; color: var(--green); border-radius: 50%; box-shadow: 0 4px 12px rgba(22, 163, 74, 0.15); margin-bottom: 12px; }
+    .card-title { font-size: 20px; font-weight: 700; color: var(--green); letter-spacing: -0.3px; margin-bottom: 4px; }
+    .card-sub { font-size: 13px; color: #166534; }
+    .card-body { padding: 20px; }
+    .avatar { width: 40px; height: 40px; border-radius: 50%; background: var(--blue); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; flex-shrink: 0; }
+    .badge { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 6px; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; }
+    .badge-green { background: var(--green-t); color: var(--green); border: 1px solid var(--green-b); }
+    .rg { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+    .rg-card { background: var(--bg); padding: 12px 14px; border-radius: var(--r-sm); border: 1px solid rgba(0,0,0,0.03); }
+    .rg-lbl { font-size: 10.5px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
+    .rg-val { font-size: 14px; font-weight: 700; color: var(--text); }
+    .mono { font-family: var(--mono); color: var(--blue); font-weight: 700; letter-spacing: 0.5px; }
+    .data-box { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .dr { display: flex; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+    .dr:last-child { border-bottom: none; }
+    .dl { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; width: 110px; flex-shrink: 0; }
+    .dv { font-size: 13.5px; font-weight: 600; color: var(--text-m); flex: 1; text-align: right; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="card-hd">
+      <div class="success-icon">${iconStar}</div>
+      <div class="card-title">Visit Recorded</div>
+      <div class="card-sub">All data saved securely. RFID card released back to pool.</div>
+    </div>
+    <div class="card-body">
+      <div style="display:flex;align-items:center;gap:11px;margin-bottom:14px;padding:11px;background:var(--bg);border-radius:var(--r-sm)">
+        ${photo ? `<img src="${photo}" style="width:40px;height:40px;border-radius:50%;object-fit:cover;flex-shrink:0">` : `<div class="avatar">${initials(name)}</div>`}
+        <div style="flex:1">
+          <div style="font-size:13.5px;font-weight:700">${name}</div>
+          <div style="font-size:11px;color:var(--muted)">${company} &middot; ${purpose}</div>
+        </div>
+        <span class="badge badge-green">${iconCheck} Done</span>
+      </div>
+      <div class="rg">
+        <div class="rg-card"><div class="rg-lbl">Check-in</div><div class="rg-val mono">${inT}</div></div>
+        <div class="rg-card"><div class="rg-lbl">Check-out</div><div class="rg-val mono">${outT}</div></div>
+        <div class="rg-card"><div class="rg-lbl">Duration</div><div class="rg-val">${dur} min</div></div>
+        <div class="rg-card"><div class="rg-lbl">RFID Card</div><div class="rg-val mono" style="font-size:10px">${rfid}</div></div>
+      </div>
+      <div class="data-box">
+        <div class="dr"><div class="dl">Host</div><div class="dv">${h}</div></div>
+        ${isTeam ? `<div class="dr"><div class="dl">Visitor Type</div><div class="dv">Team</div></div>
+          <div class="dr"><div class="dl">Team Name</div><div class="dv">${teamName}</div></div>
+          <div class="dr"><div class="dl">Team Count</div><div class="dv">${teamCount}</div></div>` : ''}
+        <div class="dr"><div class="dl">ID Type</div><div class="dv">${idType}</div></div>
+        <div class="dr"><div class="dl">Agreement</div><div class="dv"><span class="badge badge-green">${iconCheck} Signed</span></div></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
   
-  addObject(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>`);
-  addObject("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
-  addObject(`<< /Length ${streamContent.length} >>\nstream\n${streamContent}\nendstream`);
-  
-  let body = "";
-  const offsets = [];
-  let currentOffset = pdf.length;
-  
-  for (let i = 0; i < objects.length; i++) {
-    offsets.push(currentOffset);
-    const objStr = `${i + 1} 0 obj\n${objects[i]}\nendobj\n`;
-    body += objStr;
-    currentOffset += objStr.length;
-  }
-  
-  pdf += body;
-  const xrefOffset = pdf.length;
-  pdf += "xref\n";
-  pdf += `0 ${objects.length + 1}\n`;
-  pdf += "0000000000 65535 f \n";
-  for (let i = 0; i < offsets.length; i++) {
-    pdf += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`;
-  }
-  
-  pdf += "trailer\n";
-  pdf += `<< /Size ${objects.length + 1} /Root 1 0 R >>\n`;
-  pdf += "startxref\n";
-  pdf += `${xrefOffset}\n`;
-  pdf += "%%EOF\n";
-  
-  return Buffer.from(pdf, 'binary');
+  await page.setContent(html, { waitUntil: 'networkidle0' });
+  const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
+  await browser.close();
+  return Buffer.from(pdfBuffer);
 }
 
 module.exports = router;

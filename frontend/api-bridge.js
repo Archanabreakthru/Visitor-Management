@@ -92,6 +92,20 @@
     return await request(`/visits/${visitId}/checkout`, { method:'POST', body:{ rfid_confirmed:true } });
   };
 
+  window.apiDownloadReport = async function(visitId) {
+    const res = await fetch(`${BASE}/visits/${visitId}/report`, { method: 'GET' });
+    if (!res.ok) throw new Error(`Report generation failed (${res.status})`);
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `breakthru_visit_${visitId}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  };
+
   // --- OVERRIDES FOR vms_fixed.html ---
   window.sendApprovalRequest = async function() {
     try {
@@ -145,11 +159,11 @@
           if (typeof goStep === 'function') goStep(6);
           if (typeof setStatus === 'function') setStatus('Access approved! Please assign a physical RFID card.', 'ok'); 
           setTimeout(() => { if (typeof hideStatus === 'function') hideStatus(); }, 4500);
-        } else if (status === 'denied') {
+        } else if (status === 'denied' || status === 'rejected') {
           if (S.poller) clearInterval(S.poller);
           S.approved = false;
-          if (typeof goStep === 'function') goStep(6);
-          if (typeof setStatus === 'function') setStatus('Access denied. Visit logged.', 'err');
+          if (typeof toast === 'function') toast('Host has rejected the meeting request', 'err');
+          if (typeof setStatus === 'function') setStatus('Visitor request denied by host', 'err');
         }
       } catch (err) {
         console.error('[Poll Error]', err);
@@ -181,6 +195,7 @@
         dbVisitId: S.dbVisitId,
         name: S.v.name, company: S.v.company,
         email: S.v.email, host: h ? h.name : '—', purpose: S.v.purpose,
+        photo: S.photo || '',
         idType: S.v.idType, idNumber: S.v.idNumber, rfid: S.rfid,
         inTime: S.inTime, status: 'active', hadAppointment: S.apptFound || false,
         visitorType: S.v.visitorType, teamName: S.v.teamName,
@@ -205,6 +220,7 @@
       await window.apiCheckoutVisit(S.dbVisitId);
       
       S.outTime = Date.now();
+      S.lastCompletedSessionId = S.sessionId;
       Store.checkoutSession(S.sessionId);
       if (typeof renderHamBody === 'function') renderHamBody();
       if (typeof goStep === 'function') goStep(9);
@@ -226,9 +242,10 @@
       }
       
       Store.checkoutSession(id);
-        if (typeof renderHamBody === 'function') renderHamBody();
-        if (typeof goStep === 'function') goStep(9);
-        closeModal('coModal');
+      S.lastCompletedSessionId = id;
+      if (typeof renderHamBody === 'function') renderHamBody();
+      if (typeof goStep === 'function') goStep(9);
+      closeModal('coModal');
     } catch (err) {
       if (typeof toast === 'function') toast('Failed to checkout on server: ' + err.message, 'err');
     }
