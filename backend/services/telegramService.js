@@ -73,13 +73,9 @@ class TelegramService {
 <b>🚪 New Visitor Request</b>
 
 <b>👤 Name:</b> ${visit.name}
-<b>📞 Mobile:</b> ${visit.phone}
 <b>🏢 Purpose:</b> ${visit.purpose}
 <b>👨‍💼 Host:</b> ${visit.host_name || 'Unknown'}
-<b>🆔 Visit ID:</b> ${visit.id}
 ${visit.company ? `<b>🏢 Company:</b> ${visit.company}` : ''}
-${visit.email ? `<b>📧 Email:</b> ${visit.email}` : ''}
-${visit.id_type && visit.id_number ? `<b>🪪 ID:</b> ${visit.id_type} - ${visit.id_number}` : ''}
     `.trim();
   }
   

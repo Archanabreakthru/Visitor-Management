@@ -2033,11 +2033,8 @@
     <aside class="sidebar">
       <div class="logo-area">
         <div class="logo">
-          <div class="logo-mark">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-            </svg>
+          <div class="logo-mark" style="background: transparent;">
+            <img src="/BT_Logo_2_w.png" alt="BT Logo" style="width: 28px; height: 28px; object-fit: contain;" />
           </div>
           <span class="logo-text">breakthru.ai</span>
         </div>
@@ -3535,9 +3532,7 @@
     function pWelcome() {
       return `<div class="card">
     <div class="card-hd" style="text-align:center;padding:32px 24px 20px">
-      <div style="width:62px;height:62px;border-radius:50%;background:var(--blue-t);border:2px solid var(--blue-b);display:flex;align-items:center;justify-content:center;margin:0 auto 14px">
-        ${ic(I.shield, 28, 1.5)}
-      </div>
+      <div style="width:62px;height:62px;border-radius:50%;background:var(--white);border:2px solid var(--black-b);display:flex;align-items:center;justify-content:center;margin:0 auto 14px;overflow:hidden;"><img src="/BT_Logo_2_w.png" alt="BT Logo" style="width:100%;height:100%;object-fit:cover;border-radius:50%;"></div>
       <div class="card-title" style="font-size:22px">Welcome to Breakthru.ai</div>
       <div class="card-sub" style="margin-top:4px">${fmtD(Date.now())} · Reception</div>
       <div style="font-size:28px;margin:14px 0">👋</div>
@@ -4106,11 +4101,11 @@
         <strong>4. CCTV Surveillance</strong><br>
         Premises are monitored by CCTV cameras 24/7. Footage is retained for 30 days per local law.<br><br>
         <strong>5. Data Processing</strong><br>
-        Your name, company, contact details, photo, and visit record are stored securely and retained for 12 months.<br><br>
+        Your name, company, contact details, photo, RFID usage data, and visit records are collected and processed with your explicit consent. This data is stored securely and retained for 12 months.<br><br>
         <strong>6. Escorted Access</strong><br>
         Visitors must be escorted at all times. Unescorted access to restricted zones may trigger a security response.<br><br>
         <strong>7. RFID Tag</strong><br>
-        You will be issued a physical RFID card. Wear it visibly at all times and return it at checkout.
+        You will be issued a physical RFID card. Wear it visibly at all times and return it at checkout. RFID data is used solely for security and access tracking purposes with your consent.
       </div>
       <div id="agrCbRow" class="checkbox-row" style="opacity:.4;pointer-events:none;transition:all .3s">
         <input type="checkbox" id="agrCb" ${S.agrSigned ? 'checked' : ''} onchange="S.agrSigned=this.checked;updateAgree()"/>

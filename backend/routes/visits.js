@@ -107,10 +107,6 @@ async function sendHostEmail(visit, token) {
               <td class="value">${visit.name}</td>
             </tr>
             <tr>
-              <td class="label">Mobile Number</td>
-              <td class="value">${visit.phone || '—'}</td>
-            </tr>
-            <tr>
               <td class="label">Purpose of Visit</td>
               <td class="value" style="color: #2563EB;">${visit.purpose}</td>
             </tr>
@@ -123,20 +119,6 @@ async function sendHostEmail(visit, token) {
               <td class="label">Company</td>
               <td class="value">${visit.company}</td>
             </tr>` : ''}
-            ${visit.email ? `
-            <tr>
-              <td class="label">Email Address</td>
-              <td class="value">${visit.email}</td>
-            </tr>` : ''}
-            ${visit.id_type ? `
-            <tr>
-              <td class="label">Verified ID</td>
-              <td class="value">${visit.id_type} ${visit.id_number ? `(${visit.id_number})` : ''}</td>
-            </tr>` : ''}
-            <tr>
-              <td class="label">Visit ID</td>
-              <td class="value" style="font-family: monospace; font-size: 12px; color: #64748B;">${visit.id}</td>
-            </tr>
           </table>
           
           <div style="text-align: center; margin-bottom: 12px; font-weight: 500; font-size: 14px; color: #475569;">
@@ -712,7 +694,7 @@ router.get('/:id/pdf', async (req, res) => {
 
 async function generatePuppeteerPDF(visit) {
   const browser = await puppeteer.launch({
-    headless: 'new',
+    headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
   const page = await browser.newPage();
@@ -813,7 +795,7 @@ async function generatePuppeteerPDF(visit) {
 </body>
 </html>`;
   
-  await page.setContent(html, { waitUntil: 'networkidle0' });
+  await page.setContent(html, { waitUntil: 'networkidle2' });
   const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
   await browser.close();
   return Buffer.from(pdfBuffer);
