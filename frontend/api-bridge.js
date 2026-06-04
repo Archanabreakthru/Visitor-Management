@@ -41,6 +41,11 @@
   };
 
   // GET /api/visits/by-phone?phone=… — real DB-backed returning-visitor lookup
+  window.apiFetchVisitById = async function(id) {
+    const res = await request(/visits/);
+    return res && res.data ? res.data : null;
+  };
+
   window.apiFetchVisitorByPhone = async function(phone, countryCode){
     const res = await request(`/visits/by-phone?phone=${encodeURIComponent(phone)}&country_code=${encodeURIComponent(countryCode || 'IN')}`);
     console.log('[apiFetchVisitorByPhone] request URL', `/visits/by-phone?phone=${encodeURIComponent(phone)}&country_code=${encodeURIComponent(countryCode || 'IN')}`);
@@ -174,19 +179,27 @@
   };
 
   window.activateVisit = async function() {
-    if (!S.rfid) { toast('Please select an RFID card slot first.', 'err'); return; }
+    const mode = S.accessMode || 'rfid';
+    
+    if (mode === 'rfid' && !S.rfid) { toast('Please select an RFID card slot first.', 'err'); return; }
     if (!S.dbVisitId) { toast('Database ID missing. Cannot activate.', 'err'); return; }
 
     try {
+      if (mode === 'qr') {
+        S.rfid = 'QR';
+      }
+      
       await window.apiActivateVisit(S.dbVisitId, S.rfid);
 
       // Save photo to DB if not done already (covers demo-shortcut path)
       if (S.photo) {
-        try { await request(`/visits/${S.dbVisitId}/photo`, { method:'PATCH', body:{ photo_b64: S.photo }}); } catch(_e) { /* non-blocking */ }
+        try { await request('/visits/' + S.dbVisitId + '/photo', { method:'PATCH', body:{ photo_b64: S.photo }}); } catch(_e) { /* non-blocking */ }
       }
 
-      const ok = Store.assignTag(S.rfid, S.v.name);
-      if (!ok) { toast('That card is already assigned locally.', 'err'); S.rfid = null; renderPanel(); return; }
+      if (mode === 'rfid') {
+        const ok = Store.assignTag(S.rfid, S.v.name);
+        if (!ok) { toast('That card is already assigned locally.', 'err'); S.rfid = null; renderPanel(); return; }
+      }
 
       S.inTime = Date.now();
       const h = gh(S.v.hostId);
@@ -204,7 +217,13 @@
       if (typeof saveToHistory === 'function') saveToHistory(S.v);
       if (typeof renderHamBody === 'function') renderHamBody();
       if (typeof goStep === 'function') goStep(7);
-      if (typeof setStatus === 'function') setStatus(`RFID ${S.rfid} activated. Visit in progress.`, 'ok');
+      if (typeof setStatus === 'function') {
+        if (mode === 'qr') {
+          setStatus('QR Badge activated. Visit in progress.', 'ok');
+        } else {
+          setStatus('RFID ' + S.rfid + ' activated. Visit in progress.', 'ok');
+        }
+      }
       setTimeout(() => { if (typeof hideStatus === 'function') hideStatus(); }, 4000);
     } catch (err) {
       if (typeof toast === 'function') toast('Failed to activate visit: ' + err.message, 'err');
@@ -253,3 +272,5 @@
 
   console.log('[Bridge] api-bridge loaded with UI overrides:', BASE);
 })();
+
+

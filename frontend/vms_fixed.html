@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Breakthru.ai | Visitor Management</title>
+  <title>breakthru.ai | Visitor Management</title>
   <link
     href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap"
     rel="stylesheet">
@@ -2706,7 +2706,7 @@
       </div>
       <div class="sess-card-actions" style="margin-top:10px">
         <button class="btn btn-s" onclick="closeModal('coModal');renderHamBody()">Back</button>
-        <button class="btn btn-d" onclick="hamCheckout('${sessionId}')">Checkout ${sess.name}</button>
+        <button class="btn btn-d" onclick="initiateHamCheckout('${sessionId}')">Checkout ${sess.name}</button>
       </div>
     </div>`;
 
@@ -2719,25 +2719,51 @@
     function initiateHamCheckout(sessionId) {
       const s = Store.findSession(sessionId);
       if (!s) return;
-      pendingCheckoutId = sessionId;
-      $('coModalTitle').textContent = `Checkout: ${s.name}`;
-      $('coModalText').textContent = `Confirm checkout for ${s.name}?\nRFID: ${s.rfid}\nCompany: ${s.company || '—'}\n\nEnsure RFID tag "${s.rfid}" has been collected and returned.`;
-      closeHam();
-      openModal('coModal');
-    }
-
-    function executeCheckout() {
-      if (!pendingCheckoutId) { closeModal('coModal'); return; }
-      const s = Store.findSession(pendingCheckoutId);
-      if (!s) { closeModal('coModal'); return; }
-      if (s.dbVisitId && typeof window.apiCheckoutVisit === 'function') {
-        window.apiCheckoutVisit(s.dbVisitId).catch(err => toast('Failed to checkout: ' + err.message, 'err'));
+      
+      if (!s.dbVisitId) {
+        if (typeof toast === 'function') toast('Database ID missing. Cannot checkout.', 'err');
+        return;
       }
-      Store.checkoutSession(pendingCheckoutId);
-      pendingCheckoutId = null;
+      
+      closeHam();
       closeModal('coModal');
-      renderHamBody();
-      toast(`${s.name} checked out. RFID ${s.rfid} released.`, 'ok');
+      
+      // Stop current running tasks if any
+      if (typeof stopCam === 'function') stopCam();
+      if (typeof clearCountdown === 'function') clearCountdown();
+      if (typeof clearPoller === 'function') clearPoller();
+      if (typeof stopFaceCheck === 'function') stopFaceCheck();
+      if (S.waitTmr) { clearInterval(S.waitTmr); S.waitTmr = null; }
+      
+      // Reset S to clear previous state, then repopulate
+      S = mkState();
+      S.sessionId = s.id;
+      S.dbVisitId = s.dbVisitId;
+      S.v.name = s.name || '';
+      S.v.company = s.company || '';
+      S.v.email = s.email || '';
+      S.v.purpose = s.purpose || '';
+      S.v.idType = s.idType || '';
+      S.v.idNumber = s.idNumber || '';
+      S.v.visitorType = s.visitorType || 'Individual';
+      S.v.teamName = s.teamName || '';
+      S.v.teamCount = s.teamCount || 2;
+      S.v.teamMembers = s.teamMembers || [];
+      
+      S.rfid = s.rfid;
+      S.inTime = s.inTime;
+      S.photo = s.photo || null;
+      S.apptFound = s.hadAppointment || false;
+      
+      // Attempt to match host by name to get hostId
+      let foundHost = null;
+      if (typeof HOSTS !== 'undefined') {
+        foundHost = HOSTS.find(hx => hx.name === s.host);
+      }
+      S.v.hostId = foundHost ? foundHost.id : '';
+      
+      hideStatus();
+      goStep(8); // Step index 8 is the Checkout screen
     }
 
     // ════════════════════════════════════════════════════════
@@ -3533,7 +3559,7 @@
       return `<div class="card">
     <div class="card-hd" style="text-align:center;padding:32px 24px 20px">
       <div style="width:62px;height:62px;border-radius:50%;background:var(--white);border:2px solid var(--black-b);display:flex;align-items:center;justify-content:center;margin:0 auto 14px;overflow:hidden;"><img src="/BT_Logo_2_w.png" alt="BT Logo" style="width:100%;height:100%;object-fit:cover;border-radius:50%;"></div>
-      <div class="card-title" style="font-size:22px">Welcome to Breakthru.ai</div>
+      <div class="card-title" style="font-size:22px">Welcome to breakthru.ai</div>
       <div class="card-sub" style="margin-top:4px">${fmtD(Date.now())} · Reception</div>
       <div style="font-size:28px;margin:14px 0">👋</div>
       <div style="font-size:12px;color:var(--muted)">Please tap the button below to begin the visitor check-in process.</div>
@@ -4091,7 +4117,7 @@
     <div class="card-body">
       <div class="agr-scroll" id="agrBox" onscroll="onAgrScroll()">
         <strong>BREAKTHRU.AI VISITOR POLICY &amp; CONFIDENTIALITY AGREEMENT</strong><br><br>
-        By entering Breakthru.ai premises, you (the "Visitor") agree to the following terms:<br><br>
+        By entering breakthru.ai premises, you (the "Visitor") agree to the following terms:<br><br>
         <strong>1. Confidentiality</strong><br>
         You may be exposed to proprietary information, technology, or conversations. You agree not to disclose, reproduce, or use any such information without written consent from management.<br><br>
         <strong>2. Conduct &amp; Safety</strong><br>
@@ -4234,109 +4260,80 @@
     // STEP 6b — Access + RFID
     async function pAccess() {
       const h = gh(S.v.hostId);
+      const mode = S.accessMode || 'rfid';
+      
       const available = await Store.getAvailableTags();
       const selected = S.rfid;
       const slotOptions = available.length === 0
-        ? `<option value="">⚠ All RFID cards currently in use</option>`
-        : [`<option value="">Select a card slot…</option>`, ...available.map(t => `<option value="${t.tag}" ${selected === t.tag ? 'selected' : ''}>${t.label}</option>`)].join('');
+        ? `<option value="">— All RFID cards currently in use</option>`
+        : [`<option value="">Select a card slot.</option>`, ...available.map(t => `<option value="${t.tag}" ${selected === t.tag ? 'selected' : ''}>${t.label}</option>`)].join('');
+        
+      const toggleHtml = `
+      <div style="display:flex; background:var(--bg); border-radius:var(--r-sm); padding:4px; margin-bottom:14px;">
+        <div style="flex:1; text-align:center; padding:6px; font-size:12px; font-weight:600; cursor:pointer; border-radius:4px; ${mode === 'rfid' ? 'background:var(--card); box-shadow:var(--sh-sm); color:var(--blue);' : 'color:var(--muted);'}" onclick="setAccessMode('rfid')">Physical Visitor ID Card</div>
+        <div style="flex:1; text-align:center; padding:6px; font-size:12px; font-weight:600; cursor:pointer; border-radius:4px; ${mode === 'qr' ? 'background:var(--card); box-shadow:var(--sh-sm); color:var(--blue);' : 'color:var(--muted);'}" onclick="setAccessMode('qr')">QR Scanner</div>
+      </div>
+      `;
+
+      let bodyHtml = '';
+      let btnHtml = '';
+
+      if (mode === 'rfid') {
+         bodyHtml = `
+      <div style="margin-bottom:14px">
+        <span class="rfid-slot-label">ID Card Selection (Visitor 1-10)</span>
+        ${available.length === 0
+          ? `<div class="info-box err">${ic(I.alert, 12)} All 10 RFID cards are currently in use.</div>`
+          : `<select class="rfid-slot-select" id="rfidSlotSelect" onchange="selectRFIDSlot(this.value)">${slotOptions}</select>
+             <div style="margin-top:5px;font-size:9.5px;color:var(--faint)">${available.length} of 10 cards available</div>`}
+        ${selected ? `<div class="rfid-slot-selected"><div class="rfid-slot-num">RFID Tag Assigned</div><div class="rfid-slot-code">${selected}</div><div class="rfid-slot-sub">Select physical card &amp; Hand to visitor</div></div>` : ''}
+      </div>
+         `;
+         btnHtml = `
+      <button class="btn btn-g" style="flex:1" onclick="activateVisit()" ${(!selected || available.length === 0) ? 'disabled' : ''}>
+        ${ic(I.check, 13, 2.5)} Activate &amp; Begin Visit
+      </button>
+         `;
+      } else {
+         bodyHtml = `
+      <div class="bp-wrap" style="text-align:center; padding:20px;">
+         <div style="margin-bottom:10px; font-weight:600; font-size:14px;">Visitor QR Badge Preview</div>
+         <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(S.v.name + '-' + (S.dbVisitId || S.sessionId))}" style="width:120px; height:120px; border-radius:8px; border:1px solid var(--border); margin: 0 auto; display:block;" />
+         <div style="margin-top:10px; font-size:12px; color:var(--text); font-weight:700;">${S.v.name} &bull; ${S.v.company || 'Visitor'}</div>
+         <div style="font-size:11px; color:var(--muted); margin-top:4px;">Scan at turnstile for entry</div>
+      </div>
+         `;
+         btnHtml = `
+      <button class="btn btn-g" style="flex:1" onclick="activateVisit()">
+        ${ic(I.check, 13, 2.5)} Activate &amp; Begin Visit
+      </button>
+         `;
+      }
+
       return `<div class="card" style="border-color:var(--green-b)">
     <div class="card-hd" style="background:var(--green-t);border-bottom-color:var(--green-b);text-align:center;padding:24px 24px 18px">
       <div class="success-icon">${ic(I.check, 26, 1.5)}</div>
       <div class="card-title" style="color:var(--green)">Access Approved!</div>
       <div class="card-sub" style="color:#166534">
-        <strong>${h ? h.name : 'Your host'}</strong> approved this visit. Assign a physical RFID card below.
+        <strong>${h ? h.name : 'Your host'}</strong> approved this visit. Assign access below.
       </div>
     </div>
     <div class="card-body">
-      <div style="margin-bottom:14px">
-        <span class="rfid-slot-label">ID Card Selection (Visitor 1–10)</span>
-        ${available.length === 0
-          ? `<div class="info-box err">${ic(I.alert, 12)} All 10 RFID cards are currently in use.</div>`
-          : `<select class="rfid-slot-select" id="rfidSlotSelect" onchange="selectRFIDSlot(this.value)">${slotOptions}</select>
-             <div style="margin-top:5px;font-size:9.5px;color:var(--faint)">${available.length} of 10 cards available</div>`}
-        ${selected ? `<div class="rfid-slot-selected"><div class="rfid-slot-num">RFID Tag Assigned</div><div class="rfid-slot-code">${selected}</div><div class="rfid-slot-sub">Select physical card · Hand to visitor</div></div>` : ''}
-      </div>
-      ${selected ? `
-        <div class="bp-wrap">
-          <div class="bp-hd"><span class="bp-hd-txt">Visitor Badge</span><span style="font-family:var(--mono);font-size:9.5px;color:rgba(255,255,255,.3)">${fmtD(Date.now())}</span></div>
-          <div class="bp-body">
-            <div class="bp-photo">
-              ${S.photo ? `<img src="${S.photo}" style="width:100%;height:100%;object-fit:cover">` : `<div class="avatar" style="width:100%;height:100%;border-radius:0;font-size:15px">${initials(S.v.name)}</div>`}
-            </div>
-            <div style="flex:1">
-              <div style="font-size:13.5px;font-weight:700">${S.v.name}</div>
-              <div style="font-size:11px;color:var(--muted)">${S.v.company}</div>
-              <div style="margin-top:4px"><span class="badge badge-blue">${S.v.purpose === 'Other' ? S.v.purposeCustom || 'Other' : S.v.purpose}</span></div>
-            </div>
-          </div>
-          <div class="bp-ft"><span style="font-size:10.5px;color:var(--muted)">Host: ${h ? h.name : '—'}</span><span style="font-family:var(--mono);font-size:10.5px;color:var(--blue)">${selected}</span></div>
-        </div>
-      ` : `<div class="info-box warn">${ic(I.alert, 12)} Select a card slot above to generate the visitor badge.</div>`}
+      ${toggleHtml}
+      ${bodyHtml}
     </div>
-    <div class="card-ft">
-      <!-- FIX 6: Real download for badge/print -->
-      <button class="btn btn-s" onclick="printBadge()" ${!selected ? 'disabled' : ''}>
-        ${ic(I.print, 13)} Print Badge
-      </button>
-      <button class="btn btn-g" style="flex:1" onclick="activateVisit()" ${(!selected || available.length === 0) ? 'disabled' : ''}>
-        ${ic(I.check, 13, 2.5)} Activate &amp; Begin Visit
-      </button>
+    <div class="card-ft" style="display:flex;">
+      ${btnHtml}
     </div>
   </div>`;
     }
 
-    // FIX 6: Print badge as downloadable file
-    function printBadge() {
-      if (!S.rfid) return;
-      const h = gh(S.v.hostId);
-      const html = `<!DOCTYPE html>
-<html><head><title>Visitor Badge — ${S.v.name}</title>
-<style>
-  body { font-family: Arial, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f1f5fb; }
-  .badge { background: white; border: 2px solid #0a1628; border-radius: 12px; width: 320px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,.12); }
-  .badge-top { background: #0a1628; color: white; padding: 12px 16px; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; display: flex; justify-content: space-between; }
-  .badge-body { padding: 16px; display: flex; gap: 14px; align-items: center; }
-  .badge-photo { width: 64px; height: 64px; border-radius: 8px; background: #e2e8f0; overflow: hidden; flex-shrink: 0; }
-  .badge-photo img { width: 100%; height: 100%; object-fit: cover; }
-  .badge-name { font-size: 18px; font-weight: 700; margin-bottom: 2px; }
-  .badge-co { font-size: 12px; color: #64748b; margin-bottom: 8px; }
-  .badge-purpose { background: #eff4ff; color: #2563eb; border: 1px solid #bfdbfe; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-block; }
-  .badge-foot { background: #f8fafc; padding: 10px 16px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; }
-  .badge-rfid { font-family: monospace; font-size: 13px; color: #2563eb; font-weight: 700; letter-spacing: 1px; }
-  .badge-host { font-size: 10px; color: #94a3b8; }
-</style>
-</head><body>
-<div class="badge">
-  <div class="badge-top"><span>VISITOR</span><span>${fmtD(Date.now())}</span></div>
-  <div class="badge-body">
-    <div class="badge-photo">${S.photo ? `<img src="${S.photo}">` : ''}</div>
-    <div>
-      <div class="badge-name">${S.v.name}</div>
-      <div class="badge-co">${S.v.company}</div>
-      <span class="badge-purpose">${S.v.purpose === 'Other' ? S.v.purposeCustom || 'Other' : S.v.purpose}</span>
-    </div>
-  </div>
-  <div class="badge-foot">
-    <div class="badge-host">Host: ${h ? h.name : '—'}</div>
-    <div class="badge-rfid">${S.rfid}</div>
-  </div>
-</div>
-</body></html>`;
-      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const iframe = document.createElement('iframe');
-      iframe.style.display = 'none';
-      iframe.src = url;
-      
-      const origTitle = document.title;
-      document.title = `${S.v.name} - ${fmtD(Date.now())}`;
-      
-      iframe.onload = () => { 
-        iframe.contentWindow.print(); 
-        setTimeout(() => { document.title = origTitle; }, 2000);
-      };
-      document.body.appendChild(iframe);
-      toast('Print dialog opened.', 'ok');
+    function setAccessMode(mode) {
+      if (S.accessMode !== mode) {
+        S.accessMode = mode;
+        if (mode === 'qr') S.rfid = null; // Reset irrelevant state
+        renderPanel();
+      }
     }
 
     function selectRFIDSlot(tag) { S.rfid = tag || null; renderPanel(); }
@@ -4595,9 +4592,14 @@
     }
 
     function activateVisit() {
-      if (!S.rfid) { toast('Please select an RFID card slot first.', 'err'); return; }
-      const ok = Store.assignTag(S.rfid, S.v.name);
-      if (!ok) { toast('That card is already assigned. Please select another.', 'err'); S.rfid = null; renderPanel(); return; }
+      const mode = S.accessMode || 'rfid';
+      if (mode === 'rfid') {
+        if (!S.rfid) { toast('Please select an RFID card slot first.', 'err'); return; }
+        const ok = Store.assignTag(S.rfid, S.v.name);
+        if (!ok) { toast('That card is already assigned. Please select another.', 'err'); S.rfid = null; renderPanel(); return; }
+      } else {
+        S.rfid = 'QR';
+      }
       S.inTime = Date.now();
       const h = gh(S.v.hostId);
       Store.addSession({
@@ -4613,7 +4615,11 @@
       saveToHistory(S.v);
       renderHamBody();
       goStep(7);
-      setStatus(`RFID ${S.rfid} activated. Visit in progress.`, 'ok');
+      if (mode === 'qr') {
+        setStatus('QR Badge activated. Visit in progress.', 'ok');
+      } else {
+        setStatus('RFID ' + S.rfid + ' activated. Visit in progress.', 'ok');
+      }
       setTimeout(hideStatus, 4000);
     }
 
@@ -4685,3 +4691,6 @@
 </body>
 
 </html>
+
+
+
