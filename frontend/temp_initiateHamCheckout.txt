@@ -1,0 +1,45 @@
+
+    function initiateHamCheckout(sessionId) {
+      const s = Store.findSession(sessionId);
+      if (!s) return;
+      
+      closeHam();
+      closeModal('coModal');
+      
+      // Stop current running tasks if any
+      if (typeof stopCam === 'function') stopCam();
+      if (typeof clearCountdown === 'function') clearCountdown();
+      if (typeof clearPoller === 'function') clearPoller();
+      if (typeof stopFaceCheck === 'function') stopFaceCheck();
+      if (S.waitTmr) { clearInterval(S.waitTmr); S.waitTmr = null; }
+      
+      // Reset S to clear previous state, then repopulate
+      S = mkState();
+      S.sessionId = s.id;
+      S.v.name = s.name || '';
+      S.v.company = s.company || '';
+      S.v.email = s.email || '';
+      S.v.purpose = s.purpose || '';
+      S.v.idType = s.idType || '';
+      S.v.idNumber = s.idNumber || '';
+      S.v.visitorType = s.visitorType || 'Individual';
+      S.v.teamName = s.teamName || '';
+      S.v.teamCount = s.teamCount || 2;
+      S.v.teamMembers = s.teamMembers || [];
+      
+      S.rfid = s.rfid;
+      S.inTime = s.inTime;
+      S.photo = s.photo || null;
+      S.apptFound = s.hadAppointment || false;
+      S.dbVisitId = s.dbVisitId;
+      
+      // Attempt to match host by name to get hostId
+      let foundHost = null;
+      if (typeof HOSTS !== 'undefined') {
+        foundHost = HOSTS.find(hx => hx.name === s.host);
+      }
+      S.v.hostId = foundHost ? foundHost.id : '';
+      
+      if (!S.dbVisitId) {
+        toast('Database ID missing. Cannot checkout.', 'err');
+        return;
